@@ -1,5 +1,26 @@
+"""
+    MathOptVRP
+
+Solver-agnostic MOI sets and JuMP helpers for vehicle-routing problems:
+
+  * sets — `List`, `Partition`, `PartitionPD`, `TimeWindows`,
+    `CapacitatedTimeWindows`, `Capacity`
+  * operator — `sum_distances` / `op_sum_distances` for closed-tour cost
+    objectives
+
+A solver wrapper (e.g. `Hexaly.Optimizer`) implements
+`MOI.add_constrained_variables(model, ::Partition)` and
+`MOI.add_constraint(model, f, ::TimeWindows)` to give these sets their
+operational meaning; this package only defines the shapes, dimensions,
+JuMP `build_variable` overloads and the `:sum_distances` nonlinear
+operator.
+"""
 module MathOptVRP
 
-greet() = print("Hello World!")
+import MathOptInterface as MOI
+import JuMP
 
-end # module MathOptVRP
+include("sets.jl")
+include("operators.jl")
+
+end # module
