@@ -1,0 +1,4 @@
+name = "MathOptVRP"
+uuid = "ee161a15-0030-435c-8c62-bd8c501c3551"
+version = "0.1.0"
+authors = ["Benoît Legat <benoit.legat@gmail.com>"]
