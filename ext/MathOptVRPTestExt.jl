@@ -287,7 +287,7 @@ const _OPTIMAL_STATUSES = (MOI.OPTIMAL, MOI.LOCALLY_SOLVED)
 # TSP — only solver-specific bit is reading the permutation, but
 # `MathOptVRP.List(n)` pins `count(list) == n`, so every `value(nodes[k])`
 # is a real customer id.
-function MathOptVRP.test_tsp(
+function MathOptVRP.Tests.test_tsp(
     optimizer_factory;
     seed::Int = 1234,
     n::Int = 6,
@@ -310,7 +310,7 @@ function MathOptVRP.test_tsp(
     return
 end
 
-function MathOptVRP.test_vrp(
+function MathOptVRP.Tests.test_vrp(
     optimizer_factory;
     read_routes,
     seed::Int = 1234,
@@ -345,7 +345,7 @@ function MathOptVRP.test_vrp(
     return
 end
 
-function MathOptVRP.test_vrppd(
+function MathOptVRP.Tests.test_vrppd(
     optimizer_factory;
     read_routes,
     seed::Int = 1234,
@@ -384,7 +384,7 @@ function MathOptVRP.test_vrppd(
     return
 end
 
-function MathOptVRP.test_vrptw(
+function MathOptVRP.Tests.test_vrptw(
     optimizer_factory;
     read_routes,
     seed::Int = 1234,
@@ -420,7 +420,7 @@ function MathOptVRP.test_vrptw(
     return
 end
 
-function MathOptVRP.test_cvrp(
+function MathOptVRP.Tests.test_cvrp(
     optimizer_factory;
     read_routes,
     seed::Int = 1234,
@@ -473,7 +473,7 @@ function MathOptVRP.test_cvrp(
     return
 end
 
-function MathOptVRP.test_cvrptw(
+function MathOptVRP.Tests.test_cvrptw(
     optimizer_factory;
     read_routes,
     seed::Int = 1234,
@@ -533,7 +533,7 @@ end
 
 # `runtests` orchestrates the per-variant tests under one top-level
 # testset; `read_routes` is mandatory for every variant except TSP.
-function MathOptVRP.runtests(
+function MathOptVRP.Tests.runtests(
     optimizer_factory;
     read_routes,
     time_limit::Real = 5,
@@ -541,10 +541,10 @@ function MathOptVRP.runtests(
 )
     @testset "MathOptVRP" begin
         @testset "TSP" begin
-            MathOptVRP.test_tsp(optimizer_factory; time_limit, kwargs...)
+            MathOptVRP.Tests.test_tsp(optimizer_factory; time_limit, kwargs...)
         end
         @testset "VRP" begin
-            MathOptVRP.test_vrp(
+            MathOptVRP.Tests.test_vrp(
                 optimizer_factory;
                 read_routes,
                 time_limit,
@@ -552,7 +552,7 @@ function MathOptVRP.runtests(
             )
         end
         @testset "VRPPD" begin
-            MathOptVRP.test_vrppd(
+            MathOptVRP.Tests.test_vrppd(
                 optimizer_factory;
                 read_routes,
                 time_limit,
@@ -560,7 +560,7 @@ function MathOptVRP.runtests(
             )
         end
         @testset "VRPTW" begin
-            MathOptVRP.test_vrptw(
+            MathOptVRP.Tests.test_vrptw(
                 optimizer_factory;
                 read_routes,
                 time_limit,
@@ -568,7 +568,7 @@ function MathOptVRP.runtests(
             )
         end
         @testset "CVRP" begin
-            MathOptVRP.test_cvrp(
+            MathOptVRP.Tests.test_cvrp(
                 optimizer_factory;
                 read_routes,
                 time_limit,
@@ -576,7 +576,7 @@ function MathOptVRP.runtests(
             )
         end
         @testset "CVRPTW" begin
-            MathOptVRP.test_cvrptw(
+            MathOptVRP.Tests.test_cvrptw(
                 optimizer_factory;
                 read_routes,
                 time_limit,
