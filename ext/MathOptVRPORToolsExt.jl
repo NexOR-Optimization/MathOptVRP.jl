@@ -8,6 +8,10 @@ module MathOptVRPORToolsExt
 # `CpModelProto` with a `RoutesConstraintProto` and shell out to
 # `sat_runner` from `ORTools_jll`.
 
+# ORTools has a `CPSATOptimizer` but that we could extend but it still seems to be WIP,
+# e.g., no `optimize!` function and https://github.com/google/or-tools/pull/5219
+# so we just roll our own for now.
+
 import MathOptInterface as MOI
 import MathOptVRP
 import ORTools
@@ -130,10 +134,7 @@ end
 
 # Variables
 
-function MOI.supports_add_constrained_variables(
-    ::Optimizer,
-    ::Type{MathOptVRP.Partition},
-)
+function MOI.supports_add_constrained_variables(::Optimizer, ::Type{MathOptVRP.Partition})
     return true
 end
 
@@ -153,9 +154,7 @@ function MOI.add_constrained_variables(m::Optimizer, set::MathOptVRP.Partition)
     end
     m.partition = set
     m.next_constraint += 1
-    ci = MOI.ConstraintIndex{MOI.VectorOfVariables,MathOptVRP.Partition}(
-        m.next_constraint,
-    )
+    ci = MOI.ConstraintIndex{MOI.VectorOfVariables,MathOptVRP.Partition}(m.next_constraint)
     return vars, ci
 end
 
@@ -197,8 +196,8 @@ function _normalize_items(raw)
             push!(per_row[vt.output_index], vt.scalar_term)
         end
         return Any[
-            _simplify_item(MOI.ScalarAffineFunction(per_row[i], raw.constants[i]))
-            for i = 1:n
+            _simplify_item(MOI.ScalarAffineFunction(per_row[i], raw.constants[i])) for
+            i = 1:n
         ]
     elseif raw isa AbstractVector
         return Any[_simplify_item(el) for el in raw]
@@ -221,8 +220,9 @@ function _parse_leaf(m::Optimizer, leaf::MOI.ScalarNonlinearFunction)
     length(leaf.args) == 2 ||
         error("ORTools: `:sum_distances` expects 2 args, got $(length(leaf.args))")
     matrix = leaf.args[1]
-    matrix isa AbstractMatrix{<:Real} ||
-        error("ORTools: `:sum_distances` arg 1 must be a real matrix; got $(typeof(matrix))")
+    matrix isa AbstractMatrix{<:Real} || error(
+        "ORTools: `:sum_distances` arg 1 must be a real matrix; got $(typeof(matrix))",
+    )
     items = _normalize_items(leaf.args[2])
     length(items) >= 3 ||
         error("ORTools: `:sum_distances` vector must be `[depot; col; depot]`")
@@ -230,10 +230,9 @@ function _parse_leaf(m::Optimizer, leaf::MOI.ScalarNonlinearFunction)
     items[end] isa Real || error("ORTools: depot_end must be a `Real`")
     depot_start = round(Int, items[1])
     depot_end = round(Int, items[end])
-    depot_start == depot_end ||
-        error("ORTools: depot_start != depot_end is not supported")
+    depot_start == depot_end || error("ORTools: depot_start != depot_end is not supported")
     column = nothing
-    for k = 2:(length(items) - 1)
+    for k = 2:(length(items)-1)
         it = items[k]
         it isa MOI.VariableIndex ||
             error("ORTools: interior items must be variables; got $(typeof(it))")
@@ -259,10 +258,9 @@ _arc_var_index(i::Int, j::Int, n_loc::Int) = i * (n_loc - 1) + (j > i ? j - 1 : 
 
 function _build_cp_model(M::AbstractMatrix{<:Real}, ext_depot::Int, n_trucks::Int)
     n_loc = size(M, 1)
-    n_loc == size(M, 2) ||
-        error("ORTools: distance matrix must be square; got $(size(M))")
+    n_loc == size(M, 2) || error("ORTools: distance matrix must be square; got $(size(M))")
     int_to_ext = Int[ext_depot]
-    for ext = 0:(n_loc - 1)
+    for ext = 0:(n_loc-1)
         ext == ext_depot && continue
         push!(int_to_ext, ext)
     end
@@ -270,13 +268,13 @@ function _build_cp_model(M::AbstractMatrix{<:Real}, ext_depot::Int, n_trucks::In
 
     n_arcs = n_loc * (n_loc - 1)
     variables = Sat.IntegerVariableProto[
-        Sat.IntegerVariableProto("x_$k", Int64[0, 1]) for k = 0:(n_arcs - 1)
+        Sat.IntegerVariableProto("x_$k", Int64[0, 1]) for k = 0:(n_arcs-1)
     ]
 
     tails = Int32[]
     heads = Int32[]
     literals = Int32[]
-    for i = 0:(n_loc - 1), j = 0:(n_loc - 1)
+    for i = 0:(n_loc-1), j = 0:(n_loc-1)
         i == j && continue
         push!(tails, Int32(i))
         push!(heads, Int32(j))
@@ -292,15 +290,12 @@ function _build_cp_model(M::AbstractMatrix{<:Real}, ext_depot::Int, n_trucks::In
     )
 
     constraints = Sat.ConstraintProto[]
-    push!(
-        constraints,
-        Sat.ConstraintProto("routes", Int32[], PB.OneOf(:routes, routes)),
-    )
+    push!(constraints, Sat.ConstraintProto("routes", Int32[], PB.OneOf(:routes, routes)))
 
     # Limit truck count: sum of outgoing arcs from depot ≤ n_trucks.
     out_vars = Int32[]
     out_coeffs = Int64[]
-    for j = 1:(n_loc - 1)
+    for j = 1:(n_loc-1)
         push!(out_vars, Int32(_arc_var_index(0, j, n_loc)))
         push!(out_coeffs, Int64(1))
     end
@@ -312,9 +307,9 @@ function _build_cp_model(M::AbstractMatrix{<:Real}, ext_depot::Int, n_trucks::In
 
     obj_vars = Int32[]
     obj_coeffs = Int64[]
-    for i = 0:(n_loc - 1), j = 0:(n_loc - 1)
+    for i = 0:(n_loc-1), j = 0:(n_loc-1)
         i == j && continue
-        cost = round(Int64, M[int_to_ext[i + 1] + 1, int_to_ext[j + 1] + 1])
+        cost = round(Int64, M[int_to_ext[i+1]+1, int_to_ext[j+1]+1])
         cost == 0 && continue
         push!(obj_vars, Int32(_arc_var_index(i, j, n_loc)))
         push!(obj_coeffs, cost)
@@ -347,13 +342,13 @@ end
 
 function _decode_routes(solution::Vector{Int64}, n_loc::Int, int_to_ext::Vector{Int})
     outgoing = Dict{Int,Vector{Int}}()
-    for i = 0:(n_loc - 1)
+    for i = 0:(n_loc-1)
         outgoing[i] = Int[]
     end
-    for i = 0:(n_loc - 1), j = 0:(n_loc - 1)
+    for i = 0:(n_loc-1), j = 0:(n_loc-1)
         i == j && continue
         idx = _arc_var_index(i, j, n_loc)
-        if solution[idx + 1] != 0
+        if solution[idx+1] != 0
             push!(outgoing[i], j)
         end
     end
@@ -363,7 +358,7 @@ function _decode_routes(solution::Vector{Int64}, n_loc::Int, int_to_ext::Vector{
         cur = start
         guard = 0
         while cur != 0
-            push!(route_ext, int_to_ext[cur + 1])
+            push!(route_ext, int_to_ext[cur+1])
             isempty(outgoing[cur]) && error("ORTools: broken route from $cur")
             cur = outgoing[cur][1]
             guard += 1
@@ -398,8 +393,9 @@ function MOI.optimize!(m::Optimizer)
 
     parsed = [_parse_leaf(m, leaf) for leaf in leaves]
     n_trucks = length(leaves)
-    n_trucks == m.partition.num_trucks ||
-        error("ORTools: objective has $n_trucks `:sum_distances` terms but Partition has $(m.partition.num_trucks)")
+    n_trucks == m.partition.num_trucks || error(
+        "ORTools: objective has $n_trucks `:sum_distances` terms but Partition has $(m.partition.num_trucks)",
+    )
     M_ref = parsed[1][1]
     depot = parsed[1][2]
     for (mat, dep, _) in parsed
@@ -416,14 +412,20 @@ function MOI.optimize!(m::Optimizer)
             write(input_io, bytes)
             flush(input_io)
             mktemp() do output_path, _
-                params = m.time_limit === nothing ? String[] :
+                params =
+                    m.time_limit === nothing ? String[] :
                     String["--params=max_time_in_seconds:$(m.time_limit)"]
                 ORTools_jll.sat_runner() do exe
                     # `sat_runner` exits with a non-zero status that encodes
                     # the `CpSolverStatus` (e.g. ~10 for OPTIMAL), so we
                     # `ignorestatus` and rely on the written response proto.
                     cmd = ignorestatus(
-                        Cmd([exe, "--input=$input_path", "--output=$output_path", params...]),
+                        Cmd([
+                            exe,
+                            "--input=$input_path",
+                            "--output=$output_path",
+                            params...,
+                        ]),
                     )
                     run(pipeline(cmd; stdout = devnull, stderr = devnull))
                 end
@@ -470,9 +472,9 @@ function MOI.optimize!(m::Optimizer)
         cost = 0
         for r in routes_ext
             isempty(r) && continue
-            cost += M_ref[depot + 1, r[1] + 1] + M_ref[r[end] + 1, depot + 1]
+            cost += M_ref[depot+1, r[1]+1] + M_ref[r[end]+1, depot+1]
             for k = 2:length(r)
-                cost += M_ref[r[k - 1] + 1, r[k] + 1]
+                cost += M_ref[r[k-1]+1, r[k]+1]
             end
         end
         m.objective_value = cost
