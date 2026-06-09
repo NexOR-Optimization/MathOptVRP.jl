@@ -38,4 +38,10 @@ function test_cvrp end
 function test_cvrptw end
 function runtests end
 
+# Implemented in the `MathOptVRPORToolsExt` package extension (loaded when
+# `ORTools` is in scope). Returns a fresh `MOI.AbstractOptimizer` backed by
+# OR-Tools' CP-SAT routes constraint. Pass `MathOptVRP.ortools_optimizer`
+# as the JuMP optimizer factory.
+function ortools_optimizer end
+
 end # module
