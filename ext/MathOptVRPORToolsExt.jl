@@ -31,6 +31,11 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     time_limit::Union{Nothing,Float64}
     solved::Bool
     routes::Vector{Vector{Int}}
+    # Per-variable primal value populated after solve: `nodes[i, j]` holds
+    # the `i`-th customer visited by truck `j`, or the depot value if the
+    # slot is unused. Lets callers reconstruct routes via `JuMP.value`
+    # instead of reaching into this struct.
+    variable_values::Dict{MOI.VariableIndex,Int}
     objective_value::Int
     termination_status::MOI.TerminationStatusCode
     primal_status::MOI.ResultStatusCode
@@ -48,6 +53,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
             nothing,
             false,
             Vector{Int}[],
+            Dict{MOI.VariableIndex,Int}(),
             0,
             MOI.OPTIMIZE_NOT_CALLED,
             MOI.NO_SOLUTION,
@@ -76,6 +82,7 @@ function MOI.empty!(m::Optimizer)
     m.objective_function = nothing
     m.solved = false
     empty!(m.routes)
+    empty!(m.variable_values)
     m.objective_value = 0
     m.termination_status = MOI.OPTIMIZE_NOT_CALLED
     m.primal_status = MOI.NO_SOLUTION
@@ -478,6 +485,13 @@ function MOI.optimize!(m::Optimizer)
             end
         end
         m.objective_value = cost
+        # Project routes back onto the `Partition` variables: slot `(row, col)`
+        # holds the `row`-th customer visited by truck `col`, with the depot
+        # value filling unused trailing slots.
+        for (var, (row, col)) in m.variable_to_position
+            route = routes_ext[col]
+            m.variable_values[var] = row <= length(route) ? route[row] : depot
+        end
     end
     return
 end
@@ -498,9 +512,11 @@ function MOI.get(m::Optimizer, attr::MOI.ObjectiveValue)
     return Float64(m.objective_value)
 end
 
-function MOI.get(m::Optimizer, attr::MOI.VariablePrimal, ::MOI.VariableIndex)
+function MOI.get(m::Optimizer, attr::MOI.VariablePrimal, vi::MOI.VariableIndex)
     MOI.check_result_index_bounds(m, attr)
-    return 0.0
+    val = get(m.variable_values, vi, nothing)
+    val === nothing && error("ORTools: no primal value for variable $(vi)")
+    return Float64(val)
 end
 
 end # module MathOptVRPORToolsExt
