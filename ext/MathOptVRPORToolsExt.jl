@@ -16,7 +16,10 @@ import MathOptInterface as MOI
 import MathOptVRP
 import ORTools
 
-const Sat = ORTools.Sat
+# `ORTools.Sat` is a convenience alias on `main` but the registered 0.0.1
+# release predates it, so reach for the proto package directly via the
+# stable proto-generated module path.
+const Sat = ORTools.ORToolsGenerated.Proto.operations_research.sat
 const PB = ORTools.PB
 const ORTools_jll = ORTools.ORTools_jll
 
@@ -422,20 +425,14 @@ function MOI.optimize!(m::Optimizer)
                 params =
                     m.time_limit === nothing ? String[] :
                     String["--params=max_time_in_seconds:$(m.time_limit)"]
-                ORTools_jll.sat_runner() do exe
-                    # `sat_runner` exits with a non-zero status that encodes
-                    # the `CpSolverStatus` (e.g. ~10 for OPTIMAL), so we
-                    # `ignorestatus` and rely on the written response proto.
-                    cmd = ignorestatus(
-                        Cmd([
-                            exe,
-                            "--input=$input_path",
-                            "--output=$output_path",
-                            params...,
-                        ]),
-                    )
-                    run(pipeline(cmd; stdout = devnull, stderr = devnull))
-                end
+                # `sat_runner` exits with a non-zero status that encodes
+                # the `CpSolverStatus` (e.g. ~10 for OPTIMAL), so we
+                # `ignorestatus` and rely on the written response proto.
+                base_cmd = ORTools_jll.sat_runner()
+                cmd = ignorestatus(
+                    `$base_cmd --input=$input_path --output=$output_path $params`,
+                )
+                run(pipeline(cmd; stdout = devnull, stderr = devnull))
                 read(output_path)
             end
         end
