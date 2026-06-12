@@ -22,21 +22,7 @@ import JuMP
 
 include("sets.jl")
 include("operators.jl")
-
-# Solver-independent test entry points. The implementations live in the
-# `MathOptVRPTestExt` package extension and are loaded automatically when
-# `using Test` is in scope. The signature of every `test_<variant>` is
-# `test_<variant>(optimizer_factory; read_routes, kwargs...)` where
-# `read_routes(model, nodes) -> Vector{Vector{Int}}` recovers each truck's
-# 0-indexed visited-customer sequence from the solved model and the
-# matrix of decision variables (this part is necessarily solver-specific).
-function test_tsp end
-function test_vrp end
-function test_vrppd end
-function test_vrptw end
-function test_cvrp end
-function test_cvrptw end
-function runtests end
+include("Tests.jl")
 
 # Implemented in the `MathOptVRPORToolsExt` package extension (loaded when
 # `ORTools` is in scope). Returns a fresh `MOI.AbstractOptimizer` backed by
