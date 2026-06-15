@@ -19,7 +19,7 @@ function _read_routes(_model, nodes)
 end
 
 @testset "MathOptVRP.test_vrp (ORTools/CP-SAT)" begin
-    MathOptVRP.test_vrp(
+    MathOptVRP.Tests.test_vrp(
         MathOptVRP.ortools_optimizer;
         read_routes = _read_routes,
     )
