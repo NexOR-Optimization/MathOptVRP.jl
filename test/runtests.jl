@@ -107,6 +107,8 @@ import MathOptInterface as MOI
         @test expr.args[2] === nodes
     end
 
+    include("test_ortools.jl")
+
     @testset "JuMP overrides (type piracy)" begin
         # Plain numeric arrays: now treated as real, so they pass the
         # `_throw_if_not_real` check when used as leaves of nonlinear expressions.
