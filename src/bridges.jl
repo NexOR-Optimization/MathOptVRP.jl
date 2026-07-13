@@ -1,80 +1,64 @@
-# `ListToPartitionBridge` lets a solver backend that only implements
-# `MOI.add_constrained_variables(model, ::Partition)` transparently also
-# support `@variable(model, x[1:n] in MathOptVRP.List(n))`.
+# `SetConversionBridge{T,S2,S1}` lets a solver backend that only
+# implements `MOI.add_constrained_variables(model, ::S2)` transparently
+# also support `@variable(model, x[1:n] in S1(...))`, for any pair of
+# vector sets connected by a linear map (`S2` is the set actually added to
+# the underlying model, `S1` is the set exposed to the user). A new `S1 => S2` pair
+# only has to supply `map_set` / `inverse_map_set` (how the sets relate — generic here, via
+# `Base.convert`) and `map_function` / `inverse_map_function` (how the
+# *variables* relate — necessarily specific to the pair, since `S1` and
+# `S2` need not even share a dimension).
 #
-# A closed tour over `n` nodes has no distinguished depot, any rotation of
-# the cycle is an equivalent tour. This bridge exploits that: it pins the
-# first `List` variable to the constant `0` (so every bridged tour is
-# reported as "starting" at node `0`), and represents the remaining `n - 1`
-# nodes as one column of a `Partition(n - 1, 1)` (see the `Base.convert`
-# methods in `sets.jl`, which this bridge reuses directly).
 
 """
-    ListToPartitionBridge{T} <: MOI.Bridges.Variable.AbstractBridge
+    SetConversionBridge{T,S2,S1} <: MOI.Bridges.Variable.SetMapBridge{T,S2,S1}
 
-Bridges `MOI.VectorOfVariables`-in-`List(n)` to
-`MOI.VectorOfVariables`-in-`Partition(n - 1, 1)`, for backends that
-support `Partition` but not `List`.
+Bridges `MOI.VectorOfVariables`-in-`S1` (what the user asks for) to
+`MOI.VectorOfVariables`-in-`S2` (what gets added to the underlying model).
 """
-struct ListToPartitionBridge{T} <: MOI.Bridges.Variable.AbstractBridge
+struct SetConversionBridge{T,S2,S1} <: MOI.Bridges.Variable.SetMapBridge{T,S2,S1}
     variables::Vector{MOI.VariableIndex}
-    constraint::MOI.ConstraintIndex{MOI.VectorOfVariables,Partition}
+    constraint::MOI.ConstraintIndex{MOI.VectorOfVariables,S2}
 end
 
-function MOI.Bridges.Variable.bridge_constrained_variable(
-    ::Type{ListToPartitionBridge{T}},
-    model::MOI.ModelLike,
-    set::List,
+function MOI.Bridges.map_set(
+    ::Type{<:SetConversionBridge{T,S2,S1}},
+    set::S2,
+) where {T,S2,S1}
+    return convert(S1, set)
+end
+
+function MOI.Bridges.inverse_map_set(
+    ::Type{<:SetConversionBridge{T,S2,S1}},
+    set::S1,
+) where {T,S2,S1}
+    return convert(S2, set)
+end
+
+"""
+    ListToPartitionBridge{T} = SetConversionBridge{T,Partition,List}
+
+Bridges `List(n)` to `Partition(n - 1, 1)`, for backends that support
+`Partition` but not `List`.
+"""
+const ListToPartitionBridge{T} = SetConversionBridge{T,Partition,List}
+
+# `map_function`/`inverse_map_function` are called by MOI's generic
+# `SetMapBridge` machinery.
+# They reindex a vector between, the two (differently-sized) spaces: `map_function`
+# takes a length-`n-1` vector indexed like `Partition` and returns the length-`n` vector
+# indexed like `List`, by prepending the constant `0`; `inverse_map_function`
+# drops that first slot to go the other way.
+
+function MOI.Bridges.map_function(
+    ::Type{<:SetConversionBridge{T,Partition,List}},
+    func,
 ) where {T}
-    variables, constraint = MOI.add_constrained_variables(model, convert(Partition, set))
-    return ListToPartitionBridge{T}(variables, constraint)
+    return MOI.Utilities.operate(vcat, T, zero(T), func)
 end
 
-function MOI.Bridges.Variable.supports_constrained_variable(
-    ::Type{<:ListToPartitionBridge},
-    ::Type{List},
-)
-    return true
-end
-
-function MOI.Bridges.added_constrained_variable_types(::Type{<:ListToPartitionBridge})
-    return Tuple{Type}[(Partition,)]
-end
-
-MOI.Bridges.added_constraint_types(::Type{<:ListToPartitionBridge}) = Tuple{Type,Type}[]
-
-# Attributes, bridge acting as a (partial) model: only the `n - 1` real
-# `Partition` variables exist in the underlying model; index `1` (the
-# pinned depot) has no underlying variable, mirroring `ZerosBridge`.
-MOI.get(bridge::ListToPartitionBridge, ::MOI.NumberOfVariables)::Int64 =
-    length(bridge.variables)
-
-MOI.get(bridge::ListToPartitionBridge, ::MOI.ListOfVariableIndices) =
-    copy(bridge.variables)
-
-function MOI.delete(model::MOI.ModelLike, bridge::ListToPartitionBridge)
-    MOI.delete(model, bridge.variables)
-    return
-end
-
-function MOI.get(::MOI.ModelLike, ::MOI.ConstraintSet, bridge::ListToPartitionBridge)
-    return convert(List, Partition(length(bridge.variables), 1))
-end
-
-function MOI.Bridges.bridged_function(
-    bridge::ListToPartitionBridge{T},
-    i::MOI.Bridges.IndexInVector,
+function MOI.Bridges.inverse_map_function(
+    ::Type{<:SetConversionBridge{T,Partition,List}},
+    func,
 ) where {T}
-    i.value == 1 && return zero(MOI.ScalarAffineFunction{T})
-    return convert(MOI.ScalarAffineFunction{T}, bridge.variables[i.value-1])
-end
-
-function MOI.Bridges.Variable.unbridged_map(
-    ::ListToPartitionBridge,
-    ::MOI.VariableIndex,
-    ::MOI.Bridges.IndexInVector,
-)
-    # Not recoverable (the pinned depot slot has no underlying variable),
-    # matching `ZerosBridge`'s convention.
-    return nothing
+    return MOI.Utilities.eachscalar(func)[2:end]
 end
