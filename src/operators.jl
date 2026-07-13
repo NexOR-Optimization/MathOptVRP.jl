@@ -20,6 +20,40 @@ with at least one JuMP-tainted argument it constructs a
 """
 const op_sum_distances = JuMP.NonlinearOperator(sum_distances, :sum_distances)
 
+# `NonlinearOperator{F}` is parameterized on the wrapped function type, so
+# this specializes call behaviour for `op_sum_distances` specifically
+# (`F = typeof(sum_distances)`), without needing
+# `op_sum_distances` to be anything other than a real `NonlinearOperator`.
+function (f::JuMP.NonlinearOperator{typeof(sum_distances)})(
+    dist_matrix,
+    nodes::AbstractVector,
+)
+    args = (dist_matrix, _affine_nodes(nodes))
+    types = JuMP.variable_ref_type.(JuMP.GenericNonlinearExpr, args)
+    i = findfirst(!isnothing, types)
+    i === nothing && return f.func(args...)
+    return JuMP.GenericNonlinearExpr{types[i]}(f.head, args...)
+end
+
+function _affine_nodes(nodes::AbstractVector)
+    V = _node_variable_ref_type(nodes)
+    return JuMP.GenericAffExpr{Float64,V}[
+        convert(JuMP.GenericAffExpr{Float64,V}, x) for x in nodes
+    ]
+end
+
+function _node_variable_ref_type(nodes)
+    for x in nodes
+        if x isa JuMP.AbstractJuMPScalar
+            return JuMP.variable_ref_type(typeof(x))
+        end
+    end
+    return error(
+        "MathOptVRP.op_sum_distances: `nodes` must contain at least one JuMP ",
+        "variable or expression",
+    )
+end
+
 # Below are type piracy that can be removed once
 # https://github.com/jump-dev/JuMP.jl/pull/3451 is merged. They let
 # JuMP accept arrays as leaves of `GenericNonlinearExpr` (needed for

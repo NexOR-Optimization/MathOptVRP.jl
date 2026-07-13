@@ -29,6 +29,17 @@ import MathOptInterface as MOI
         )
     end
 
+    @testset "List <=> Partition conversion" begin
+        @test convert(MathOptVRP.Partition, MathOptVRP.List(5)) ==
+              MathOptVRP.Partition(4, 1)
+        @test convert(MathOptVRP.List, MathOptVRP.Partition(5, 1)) ==
+              MathOptVRP.List(6)
+        @test_throws ErrorException convert(
+            MathOptVRP.List,
+            MathOptVRP.Partition(5, 2),
+        )
+    end
+
     @testset "PartitionPD" begin
         s = MathOptVRP.PartitionPD(2, 3, 4)  # 2 services + 2*3 pd = 8 rows, 4 trucks
         @test s.num_services == 2
@@ -104,7 +115,14 @@ import MathOptInterface as MOI
         @test expr isa JuMP.GenericNonlinearExpr
         @test expr.head === :sum_distances
         @test expr.args[1] === dist
-        @test expr.args[2] === nodes
+        # `nodes` is promoted element-by-element to `GenericAffExpr` (not
+        # left as-is) so the expression lowers to a `MOI.VectorAffineFunction`
+        # that variable bridges (e.g. `ListToPartitionBridge`) know how to
+        # rewrite. `isequal_canonical` (not `==`, which JuMP overloads to
+        # build constraints) checks the promoted entries are still
+        # mathematically just `1 * nodes[k]`.
+        @test expr.args[2] isa Vector{<:JuMP.GenericAffExpr}
+        @test all(JuMP.isequal_canonical(expr.args[2][k], 1.0 * nodes[k]) for k in eachindex(nodes))
     end
 
     include("test_ortools.jl")

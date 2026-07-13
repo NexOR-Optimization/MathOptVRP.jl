@@ -289,6 +289,7 @@ const _OPTIMAL_STATUSES = (MOI.OPTIMAL, MOI.LOCALLY_SOLVED)
 # is a real customer id.
 function MathOptVRP.Tests.test_tsp(
     optimizer_factory;
+    read_routes,
     seed::Int = 1234,
     n::Int = 6,
     time_limit::Real = 5,
@@ -296,13 +297,19 @@ function MathOptVRP.Tests.test_tsp(
 )
     inst = _tsp_instance(; seed, n)
     model = JuMP.Model(optimizer_factory)
+    JuMP.add_bridge(model, MathOptVRP.ListToPartitionBridge)
     JuMP.set_silent(model)
     JuMP.set_time_limit_sec(model, time_limit)
     JuMP.@variable(model, nodes[1:n] in MathOptVRP.List(n))
-    JuMP.@objective(model, Min, MathOptVRP.op_sum_distances(inst.dist, nodes))
+    JuMP.@objective(
+        model,
+        Min,
+        MathOptVRP.op_sum_distances(inst.dist, vcat(nodes[1], nodes[2:end], nodes[1])),
+    )
     JuMP.optimize!(model)
     @test JuMP.termination_status(model) in _OPTIMAL_STATUSES
-    seq = [round(Int, JuMP.value(v)) for v in nodes]
+    routes = read_routes(model, nodes)
+    seq = vcat(0, only(routes))
     @test sort(seq) == collect(0:(n-1))
     tour = [c + 1 for c in seq]
     expected = sum(inst.dist[tour[k], tour[mod1(k + 1, n)]] for k = 1:n)
