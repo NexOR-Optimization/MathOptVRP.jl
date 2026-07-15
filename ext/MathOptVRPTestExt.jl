@@ -297,7 +297,6 @@ function MathOptVRP.Tests.test_tsp(
 )
     inst = _tsp_instance(; seed, n)
     model = JuMP.Model(optimizer_factory)
-    JuMP.add_bridge(model, MathOptVRP.ListToPartitionBridge)
     JuMP.set_silent(model)
     JuMP.set_time_limit_sec(model, time_limit)
     JuMP.@variable(model, nodes[1:n] in MathOptVRP.List(n))
