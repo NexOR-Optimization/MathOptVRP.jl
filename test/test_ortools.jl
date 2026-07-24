@@ -24,3 +24,10 @@ end
         read_routes = _read_routes,
     )
 end
+
+@testset "MathOptVRP.test_vrppd (ORTools/CP-SAT)" begin
+    MathOptVRP.Tests.test_vrppd(
+        MathOptVRP.ortools_optimizer;
+        read_routes = _read_routes,
+    )
+end
