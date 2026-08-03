@@ -1,6 +1,7 @@
 using JuMP
 using MathOptVRP
 using ORTools  # triggers loading of `MathOptVRPORToolsExt`
+import ORTools_jll  # provides the OR-Tools binaries to `ORTools`
 using Test
 
 # The OR-Tools extension projects the solved routes back onto the partition

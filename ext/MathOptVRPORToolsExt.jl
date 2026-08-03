@@ -5,23 +5,23 @@ module MathOptVRPORToolsExt
 # `MathOptVRP.Partition` set of variables and a `MOI.ScalarNonlinearFunction`
 # objective built from `MathOptVRP.op_sum_distances` (one leaf per truck,
 # optionally wrapped in `:+` nodes), then lower the VRP to a CP-SAT
-# `CpModelProto` with a `RoutesConstraintProto` and shell out to
-# `sat_runner` from `ORTools_jll`.
+# `CpModelProto` with a `RoutesConstraintProto` and hand it to
+# `ORTools.SolveCpModelWithParameters`, the CP-SAT C API.
 
 # ORTools has a `CPSATOptimizer` but that we could extend but it still seems to be WIP,
 # e.g., no `optimize!` function and https://github.com/google/or-tools/pull/5219
 # so we just roll our own for now.
 
+# The OR-Tools binaries are not a dependency of this extension: `ORTools`
+# picks them up from whichever of `ORTools_jll` or `ORToolsBinaries` the
+# user imports.
+
 import MathOptInterface as MOI
 import MathOptVRP
 import ORTools
 
-# `ORTools.Sat` is a convenience alias on `main` but the registered 0.0.1
-# release predates it, so reach for the proto package directly via the
-# stable proto-generated module path.
-const Sat = ORTools.ORToolsGenerated.Proto.operations_research.sat
+const Sat = ORTools.Sat
 const PB = ORTools.PB
-const ORTools_jll = ORTools.ORTools_jll
 
 mutable struct Optimizer <: MOI.AbstractOptimizer
     next_variable::Int
@@ -379,14 +379,45 @@ function _decode_routes(solution::Vector{Int64}, n_loc::Int, int_to_ext::Vector{
     return routes
 end
 
-function _serialize(model::Sat.CpModelProto)
+function _encode(proto)
     io = IOBuffer()
-    PB.encode(PB.ProtoEncoder(io), model)
+    PB.encode(PB.ProtoEncoder(io), proto)
     return take!(io)
 end
 
-function _deserialize_response(bytes::Vector{UInt8})
-    return PB.decode(PB.ProtoDecoder(IOBuffer(bytes)), Sat.CpSolverResponse)
+# `Sat.SatParameters` is proto-generated so it only has a positional
+# constructor over its ~300 fields; start from the proto defaults and
+# override the two fields we map from MOI attributes. Fields left at their
+# default do not make it to the wire.
+function _sat_parameters(m::Optimizer)
+    defaults = PB.default_values(Sat.SatParameters)
+    params = merge(
+        defaults,
+        (
+            max_time_in_seconds = something(m.time_limit, defaults.max_time_in_seconds),
+            log_search_progress = !m.silent,
+        ),
+    )
+    return Sat.SatParameters(params...)
+end
+
+function _solve(model::Sat.CpModelProto, params::Sat.SatParameters)
+    request, parameters = _encode(model), _encode(params)
+    response = Ref{Ptr{Cvoid}}()
+    response_len = Ref{Cint}(0)
+    ORTools.SolveCpModelWithParameters(
+        request,
+        length(request),
+        parameters,
+        length(parameters),
+        response,
+        response_len,
+    )
+    # The C API `malloc`s the serialized response and transfers ownership.
+    bytes = unsafe_wrap(Vector{UInt8}, Ptr{UInt8}(response[]), response_len[])
+    decoded = PB.decode(PB.ProtoDecoder(IOBuffer(bytes)), Sat.CpSolverResponse)
+    Libc.free(response[])
+    return decoded
 end
 
 # ── Optimize ────────────────────────────────────────────────────────
@@ -416,34 +447,7 @@ function MOI.optimize!(m::Optimizer)
     cp_model, int_to_ext = _build_cp_model(M_ref, depot, n_trucks)
     n_loc = length(int_to_ext)
 
-    response = try
-        bytes = _serialize(cp_model)
-        out_bytes = mktemp() do input_path, input_io
-            write(input_io, bytes)
-            flush(input_io)
-            mktemp() do output_path, _
-                params =
-                    m.time_limit === nothing ? String[] :
-                    String["--params=max_time_in_seconds:$(m.time_limit)"]
-                # `sat_runner` exits with a non-zero status that encodes
-                # the `CpSolverStatus` (e.g. ~10 for OPTIMAL), so we
-                # `ignorestatus` and rely on the written response proto.
-                base_cmd = ORTools_jll.sat_runner()
-                cmd = ignorestatus(
-                    `$base_cmd --input=$input_path --output=$output_path $params`,
-                )
-                run(pipeline(cmd; stdout = devnull, stderr = devnull))
-                read(output_path)
-            end
-        end
-        _deserialize_response(out_bytes)
-    catch err
-        m.solved = true
-        m.termination_status = MOI.OTHER_ERROR
-        m.primal_status = MOI.NO_SOLUTION
-        m.raw_status = sprint(showerror, err)
-        return
-    end
+    response = _solve(cp_model, _sat_parameters(m))
 
     # CpSolverStatus enum values from operations_research/sat/cp_model.proto:
     # 0 = UNKNOWN, 1 = MODEL_INVALID, 2 = FEASIBLE, 3 = INFEASIBLE, 4 = OPTIMAL.
