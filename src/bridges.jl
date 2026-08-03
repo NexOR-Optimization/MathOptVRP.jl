@@ -34,6 +34,10 @@ function MOI.Bridges.inverse_map_set(
     return convert(S2, set)
 end
 
+MOI.Bridges.map_function(::Type{<:SetConversionBridge}, func) = func
+
+MOI.Bridges.inverse_map_function(::Type{<:SetConversionBridge}, func) = func
+
 """
     ListToPartitionBridge{T} = SetConversionBridge{T,Partition,List}
 
@@ -41,24 +45,3 @@ Bridges `List(n)` to `Partition(n - 1, 1)`, for backends that support
 `Partition` but not `List`.
 """
 const ListToPartitionBridge{T} = SetConversionBridge{T,Partition,List}
-
-# `map_function`/`inverse_map_function` are called by MOI's generic
-# `SetMapBridge` machinery.
-# They reindex a vector between, the two (differently-sized) spaces: `map_function`
-# takes a length-`n-1` vector indexed like `Partition` and returns the length-`n` vector
-# indexed like `List`, by prepending the constant `0`; `inverse_map_function`
-# drops that first slot to go the other way.
-
-function MOI.Bridges.map_function(
-    ::Type{<:SetConversionBridge{T,Partition,List}},
-    func,
-) where {T}
-    return MOI.Utilities.operate(vcat, T, zero(T), func)
-end
-
-function MOI.Bridges.inverse_map_function(
-    ::Type{<:SetConversionBridge{T,Partition,List}},
-    func,
-) where {T}
-    return MOI.Utilities.eachscalar(func)[2:end]
-end
