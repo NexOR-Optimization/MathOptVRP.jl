@@ -63,12 +63,9 @@ Only defined when `s.num_trucks == 1`: a multi-truck `Partition` has no
 """
 function Base.convert(::Type{List}, s::Partition)
     if s.num_trucks != 1
-        throw(InexactError(
-            :convert,
-            List,
-            "MathOptVRP.Partition: cannot convert to `List`, `num_trucks` ",
-            "must be `1`, got `$(s.num_trucks)`.",
-           ))
+        # Julia v1.10's `InexactError` only accepts `(func, T, val)`; the
+        # variadic constructor that takes a message is v1.11 or later.
+        throw(InexactError(:convert, List, s))
     end
     return List(s.num_clients)
 end
