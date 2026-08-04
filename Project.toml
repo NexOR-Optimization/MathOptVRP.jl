@@ -17,7 +17,7 @@ MathOptVRPORToolsExt = "ORTools"
 MathOptVRPTestExt = "Test"
 
 [compat]
-JuMP = "=1.31" # Exact because we do type piracy
+JuMP = "1.31"
 MathOptInterface = "1"
 ORTools = "0.1"
 Random = "1"

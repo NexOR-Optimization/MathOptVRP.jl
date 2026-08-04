@@ -7,7 +7,7 @@ ORTools_jll = "717719f8-c30c-5086-8f3c-70cd6a1e3a46"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [compat]
-JuMP = "=1.31" # Exact because we do type piracy
+JuMP = "1.31"
 MathOptInterface = "1"
 ORTools = "0.1"
 ORTools_jll = "9.15"
