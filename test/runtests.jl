@@ -115,14 +115,7 @@ import MathOptInterface as MOI
         @test expr isa JuMP.GenericNonlinearExpr
         @test expr.head === :sum_distances
         @test expr.args[1] === dist
-        # `nodes` is promoted element-by-element to `GenericAffExpr` (not
-        # left as-is) so the expression lowers to a `MOI.VectorAffineFunction`
-        # that variable bridges (e.g. `ListToPartitionBridge`) know how to
-        # rewrite. `isequal_canonical` (not `==`, which JuMP overloads to
-        # build constraints) checks the promoted entries are still
-        # mathematically just `1 * nodes[k]`.
-        @test expr.args[2] isa Vector{<:JuMP.GenericAffExpr}
-        @test all(JuMP.isequal_canonical(expr.args[2][k], 1.0 * nodes[k]) for k in eachindex(nodes))
+        @test expr.args[2] === nodes
     end
 
     include("test_ortools.jl")
