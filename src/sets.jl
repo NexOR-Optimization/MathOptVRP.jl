@@ -63,10 +63,12 @@ Only defined when `s.num_trucks == 1`: a multi-truck `Partition` has no
 """
 function Base.convert(::Type{List}, s::Partition)
     if s.num_trucks != 1
-        error(
+        throw(InexactError(
+            :convert,
+            List,
             "MathOptVRP.Partition: cannot convert to `List`, `num_trucks` ",
             "must be `1`, got `$(s.num_trucks)`.",
-        )
+           ))
     end
     return List(s.num_clients)
 end
