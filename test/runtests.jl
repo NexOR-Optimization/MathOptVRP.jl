@@ -118,6 +118,8 @@ import MathOptInterface as MOI
         @test expr.args[2] === nodes
     end
 
+    include("Bridges/set_conversion.jl")
+
     include("test_ortools.jl")
 
     @testset "JuMP overrides (type piracy)" begin

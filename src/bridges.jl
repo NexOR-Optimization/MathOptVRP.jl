@@ -38,6 +38,18 @@ MOI.Bridges.map_function(::Type{<:SetConversionBridge}, func) = func
 
 MOI.Bridges.inverse_map_function(::Type{<:SetConversionBridge}, func) = func
 
+# The map is the identity so it is its own adjoint; without these, setting
+# `MOI.ConstraintDualStart` (or getting `MOI.ConstraintDual`) on a bridged
+# constraint errors.
+MOI.Bridges.adjoint_map_function(::Type{<:SetConversionBridge}, func) = func
+
+function MOI.Bridges.inverse_adjoint_map_function(
+    ::Type{<:SetConversionBridge},
+    func,
+)
+    return func
+end
+
 """
     ListToPartitionBridge{T} = SetConversionBridge{T,Partition,List}
 
