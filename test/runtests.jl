@@ -31,9 +31,9 @@ import MathOptInterface as MOI
 
     @testset "List <=> Partition conversion" begin
         @test convert(MathOptVRP.Partition, MathOptVRP.List(5)) ==
-              MathOptVRP.Partition(4, 1)
+              MathOptVRP.Partition(5, 1)
         @test convert(MathOptVRP.List, MathOptVRP.Partition(5, 1)) ==
-              MathOptVRP.List(6)
+              MathOptVRP.List(5)
         @test_throws ErrorException convert(
             MathOptVRP.List,
             MathOptVRP.Partition(5, 2),
