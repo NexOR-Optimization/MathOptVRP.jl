@@ -47,6 +47,30 @@ function JuMP.build_variable(
 end
 
 """
+    Base.convert(::Type{Partition}, s::List)
+
+`List(n)` and `Partition(n, 1)` have the same flat dimension (`n`) and, for
+a single truck, the same "permutation of `0:n-1`" semantics, so this
+conversion always succeeds.
+"""
+Base.convert(::Type{Partition}, s::List) = Partition(s.dimension, 1)
+
+"""
+    Base.convert(::Type{List}, s::Partition)
+
+Only defined when `s.num_trucks == 1`: a multi-truck `Partition` has no
+`List` equivalent.
+"""
+function Base.convert(::Type{List}, s::Partition)
+    if s.num_trucks != 1
+        # Julia v1.10's `InexactError` only accepts `(func, T, val)`; the
+        # variadic constructor that takes a message is v1.11 or later.
+        throw(InexactError(:convert, List, s))
+    end
+    return List(s.num_clients)
+end
+
+"""
     PartitionPD(num_services::Int, num_pickup_deliveries::Int, num_trucks::Int)
 
 A partition variant for pickup/delivery routing. The flat dimension is

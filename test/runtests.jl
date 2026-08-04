@@ -29,6 +29,17 @@ import MathOptInterface as MOI
         )
     end
 
+    @testset "List <=> Partition conversion" begin
+        @test convert(MathOptVRP.Partition, MathOptVRP.List(5)) ==
+              MathOptVRP.Partition(5, 1)
+        @test convert(MathOptVRP.List, MathOptVRP.Partition(5, 1)) ==
+              MathOptVRP.List(5)
+        @test_throws InexactError convert(
+            MathOptVRP.List,
+            MathOptVRP.Partition(5, 2),
+        )
+    end
+
     @testset "PartitionPD" begin
         s = MathOptVRP.PartitionPD(2, 3, 4)  # 2 services + 2*3 pd = 8 rows, 4 trucks
         @test s.num_services == 2
@@ -106,6 +117,8 @@ import MathOptInterface as MOI
         @test expr.args[1] === dist
         @test expr.args[2] === nodes
     end
+
+    include("Bridges/set_conversion.jl")
 
     include("test_ortools.jl")
 
