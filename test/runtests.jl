@@ -34,7 +34,7 @@ import MathOptInterface as MOI
               MathOptVRP.Partition(5, 1)
         @test convert(MathOptVRP.List, MathOptVRP.Partition(5, 1)) ==
               MathOptVRP.List(5)
-        @test_throws ErrorException convert(
+        @test_throws InexactError convert(
             MathOptVRP.List,
             MathOptVRP.Partition(5, 2),
         )
