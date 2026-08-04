@@ -54,7 +54,7 @@ a single truck, the same "permutation of `0:n-1`" semantics, so this
 conversion always succeeds. Note the partition number of client is s.dimension - 1
 since the List contains the depot node.
 """
-Base.convert(::Type{Partition}, s::List) = Partition(s.dimension - 1, 1)
+Base.convert(::Type{Partition}, s::List) = Partition(s.dimension, 1)
 
 """
     Base.convert(::Type{List}, s::Partition)
@@ -63,11 +63,13 @@ Only defined when `s.num_trucks == 1`: a multi-truck `Partition` has no
 `List` equivalent.
 """
 function Base.convert(::Type{List}, s::Partition)
-    s.num_trucks == 1 || error(
+    if s.num_trucks != 1
+        throw(InexactError(
         "MathOptVRP.Partition: cannot convert to `List`, `num_trucks` must ",
         "be `1`, got `$(s.num_trucks)`.",
-    )
-    return List(s.num_clients + 1)
+       ))
+    end
+    return List(s.num_clients)
 end
 
 """

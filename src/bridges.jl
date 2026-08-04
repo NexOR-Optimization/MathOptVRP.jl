@@ -41,7 +41,7 @@ MOI.Bridges.inverse_map_function(::Type{<:SetConversionBridge}, func) = func
 """
     ListToPartitionBridge{T} = SetConversionBridge{T,Partition,List}
 
-Bridges `List(n)` to `Partition(n - 1, 1)`, for backends that support
+Bridges `List(n)` to `Partition(n, 1)`, for backends that support
 `Partition` but not `List`.
 """
 const ListToPartitionBridge{T} = SetConversionBridge{T,Partition,List}
