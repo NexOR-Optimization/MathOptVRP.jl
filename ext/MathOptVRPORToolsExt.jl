@@ -35,9 +35,9 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     solved::Bool
     routes::Vector{Vector{Int}}
     # Per-variable primal value populated after solve: `nodes[i, j]` holds
-    # the `i`-th customer visited by truck `j`, or the depot value if the
-    # slot is unused. Lets callers reconstruct routes via `JuMP.value`
-    # instead of reaching into this struct.
+    # the `i`-th customer visited by truck `j`, or `0` if the route has
+    # ended. Lets callers reconstruct routes via `JuMP.value` instead of
+    # reaching into this struct.
     variable_values::Dict{MOI.VariableIndex,Int}
     objective_value::Int
     termination_status::MOI.TerminationStatusCode
@@ -261,8 +261,10 @@ end
 
 # ── CP-SAT model construction ───────────────────────────────────────
 # Internal node numbering: 0 = depot, 1..n_loc-1 = customers (in original
-# external order, skipping the depot). Arc variable indexing flattens
-# `(i, j)` with `i != j` over `n_loc * (n_loc - 1)` 0-indexed slots.
+# external order, skipping the depot). External ids are the 1-based
+# `MathOptVRP` ones, that is, the indices of the distance matrix. Arc
+# variable indexing flattens `(i, j)` with `i != j` over
+# `n_loc * (n_loc - 1)` 0-indexed slots.
 
 _arc_var_index(i::Int, j::Int, n_loc::Int) = i * (n_loc - 1) + (j > i ? j - 1 : j)
 
@@ -270,7 +272,7 @@ function _build_cp_model(M::AbstractMatrix{<:Real}, ext_depot::Int, n_trucks::In
     n_loc = size(M, 1)
     n_loc == size(M, 2) || error("ORTools: distance matrix must be square; got $(size(M))")
     int_to_ext = Int[ext_depot]
-    for ext = 0:(n_loc-1)
+    for ext = 1:n_loc
         ext == ext_depot && continue
         push!(int_to_ext, ext)
     end
@@ -319,7 +321,7 @@ function _build_cp_model(M::AbstractMatrix{<:Real}, ext_depot::Int, n_trucks::In
     obj_coeffs = Int64[]
     for i = 0:(n_loc-1), j = 0:(n_loc-1)
         i == j && continue
-        cost = round(Int64, M[int_to_ext[i+1]+1, int_to_ext[j+1]+1])
+        cost = round(Int64, M[int_to_ext[i+1], int_to_ext[j+1]])
         cost == 0 && continue
         push!(obj_vars, Int32(_arc_var_index(i, j, n_loc)))
         push!(obj_coeffs, cost)
@@ -480,18 +482,18 @@ function MOI.optimize!(m::Optimizer)
         cost = 0
         for r in routes_ext
             isempty(r) && continue
-            cost += M_ref[depot+1, r[1]+1] + M_ref[r[end]+1, depot+1]
+            cost += M_ref[depot, r[1]] + M_ref[r[end], depot]
             for k = 2:length(r)
-                cost += M_ref[r[k-1]+1, r[k]+1]
+                cost += M_ref[r[k-1], r[k]]
             end
         end
         m.objective_value = cost
         # Project routes back onto the `Partition` variables: slot `(row, col)`
-        # holds the `row`-th customer visited by truck `col`, with the depot
-        # value filling unused trailing slots.
+        # holds the `row`-th customer visited by truck `col`, and `0` once the
+        # route has ended, as `MathOptVRP.Partition` prescribes.
         for (var, (row, col)) in m.variable_to_position
             route = routes_ext[col]
-            m.variable_values[var] = row <= length(route) ? route[row] : depot
+            m.variable_values[var] = row <= length(route) ? route[row] : 0
         end
     end
     return

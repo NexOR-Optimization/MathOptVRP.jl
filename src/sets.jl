@@ -8,7 +8,7 @@
     List(dimension::Int)
 
 A vector set whose `dimension` variables form a permutation of
-`0:dimension-1`.
+`1:dimension`.
 """
 struct List <: MOI.AbstractVectorSet
     dimension::Int
@@ -21,7 +21,13 @@ MOI.dimension(s::List) = s.dimension
 
 A `num_clients × num_trucks` matrix of variables; each truck's column is
 a (possibly variable-length) sub-list and the columns together partition
-`0:num_clients-1`.
+`1:num_clients`.
+
+A column has one slot per client, so a truck visiting fewer than
+`num_clients` of them has slots to spare: it holds the clients it visits,
+in order, and the remaining slots are `0`. A solution is therefore read
+back as the entries of a column before its first `0`, without the solver
+having to say anything about the length.
 """
 struct Partition <: MOI.AbstractVectorSet
     num_clients::Int
@@ -50,7 +56,7 @@ end
     Base.convert(::Type{Partition}, s::List)
 
 `List(n)` and `Partition(n, 1)` have the same flat dimension (`n`) and, for
-a single truck, the same "permutation of `0:n-1`" semantics, so this
+a single truck, the same "permutation of `1:n`" semantics, so this
 conversion always succeeds.
 """
 Base.convert(::Type{Partition}, s::List) = Partition(s.dimension, 1)
@@ -74,14 +80,16 @@ end
     PartitionPD(num_services::Int, num_pickup_deliveries::Int, num_trucks::Int)
 
 A partition variant for pickup/delivery routing. The flat dimension is
-`(num_services + 2 * num_pickup_deliveries) * num_trucks`. Hexaly
-0-indexed node identities are:
+`(num_services + 2 * num_pickup_deliveries) * num_trucks`. Node
+identities are:
 
-  - services:    `0 .. num_services - 1`
-  - pickups:     `num_services .. num_services + num_pd - 1`
-  - deliveries:  `num_services + num_pd .. n_total - 1`
+  - services:    `1 .. num_services`
+  - pickups:     `num_services + 1 .. num_services + num_pd`
+  - deliveries:  `num_services + num_pd + 1 .. n_total`
 
-Pickup `k` is paired with delivery `num_services + num_pd + k`.
+Pickup `num_services + k` is paired with delivery
+`num_services + num_pd + k`. Columns are `0`-padded like
+[`Partition`](@ref).
 """
 struct PartitionPD <: MOI.AbstractVectorSet
     num_services::Int
