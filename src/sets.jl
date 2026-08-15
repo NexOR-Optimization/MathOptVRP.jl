@@ -5,16 +5,16 @@
 # variable-construction helpers, and the obvious `Base.copy` overrides.
 
 """
-    List(dimension::Int)
+    Permutation(dimension::Int)
 
 A vector set whose `dimension` variables form a permutation of
 `1:dimension`.
 """
-struct List <: MOI.AbstractVectorSet
+struct Permutation <: MOI.AbstractVectorSet
     dimension::Int
 end
 
-MOI.dimension(s::List) = s.dimension
+MOI.dimension(s::Permutation) = s.dimension
 
 """
     Partition(num_clients::Int, num_trucks::Int)
@@ -53,27 +53,27 @@ function JuMP.build_variable(
 end
 
 """
-    Base.convert(::Type{Partition}, s::List)
+    Base.convert(::Type{Partition}, s::Permutation)
 
-`List(n)` and `Partition(n, 1)` have the same flat dimension (`n`) and, for
+`Permutation(n)` and `Partition(n, 1)` have the same flat dimension (`n`) and, for
 a single truck, the same "permutation of `1:n`" semantics, so this
 conversion always succeeds.
 """
-Base.convert(::Type{Partition}, s::List) = Partition(s.dimension, 1)
+Base.convert(::Type{Partition}, s::Permutation) = Partition(s.dimension, 1)
 
 """
-    Base.convert(::Type{List}, s::Partition)
+    Base.convert(::Type{Permutation}, s::Partition)
 
 Only defined when `s.num_trucks == 1`: a multi-truck `Partition` has no
-`List` equivalent.
+`Permutation` equivalent.
 """
-function Base.convert(::Type{List}, s::Partition)
+function Base.convert(::Type{Permutation}, s::Partition)
     if s.num_trucks != 1
         # Julia v1.10's `InexactError` only accepts `(func, T, val)`; the
         # variadic constructor that takes a message is v1.11 or later.
-        throw(InexactError(:convert, List, s))
+        throw(InexactError(:convert, Permutation, s))
     end
-    return List(s.num_clients)
+    return Permutation(s.num_clients)
 end
 
 """
