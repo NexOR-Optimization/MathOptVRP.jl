@@ -4,8 +4,8 @@ using Test
 import MathOptInterface as MOI
 
 @testset "MathOptVRP" begin
-    @testset "List" begin
-        s = MathOptVRP.List(5)
+    @testset "Permutation" begin
+        s = MathOptVRP.Permutation(5)
         @test s.dimension == 5
         @test MOI.dimension(s) == 5
     end
@@ -29,13 +29,13 @@ import MathOptInterface as MOI
         )
     end
 
-    @testset "List <=> Partition conversion" begin
-        @test convert(MathOptVRP.Partition, MathOptVRP.List(5)) ==
+    @testset "Permutation <=> Partition conversion" begin
+        @test convert(MathOptVRP.Partition, MathOptVRP.Permutation(5)) ==
               MathOptVRP.Partition(5, 1)
-        @test convert(MathOptVRP.List, MathOptVRP.Partition(5, 1)) ==
-              MathOptVRP.List(5)
+        @test convert(MathOptVRP.Permutation, MathOptVRP.Partition(5, 1)) ==
+              MathOptVRP.Permutation(5)
         @test_throws InexactError convert(
-            MathOptVRP.List,
+            MathOptVRP.Permutation,
             MathOptVRP.Partition(5, 2),
         )
     end
@@ -109,7 +109,7 @@ import MathOptInterface as MOI
         # When called with a JuMP-tainted argument it builds a
         # `GenericNonlinearExpr` rather than calling the stub `func`.
         model = Model()
-        @variable(model, nodes[1:3] in MathOptVRP.List(3))
+        @variable(model, nodes[1:3] in MathOptVRP.Permutation(3))
         dist = [0 1 2; 1 0 3; 2 3 0]
         expr = MathOptVRP.op_sum_distances(dist, nodes)
         @test expr isa JuMP.GenericNonlinearExpr

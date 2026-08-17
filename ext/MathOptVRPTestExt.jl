@@ -306,7 +306,8 @@ function _read_routes(nodes)
 end
 
 # TSP — only solver-specific bit is reading the permutation, but
-# `MathOptVRP.List(n)` pins `count(list) == n`, so every `value(nodes[k])`
+# `MathOptVRP.Permutation(n)` pins `count(permutation) == n`, so every
+# `value(nodes[k])`
 # is a real customer id.
 function MathOptVRP.Tests.test_tsp(
     optimizer_factory;
@@ -319,7 +320,7 @@ function MathOptVRP.Tests.test_tsp(
     model = JuMP.Model(optimizer_factory)
     JuMP.set_silent(model)
     JuMP.set_time_limit_sec(model, time_limit)
-    JuMP.@variable(model, nodes[1:n] in MathOptVRP.List(n))
+    JuMP.@variable(model, nodes[1:n] in MathOptVRP.Permutation(n))
     JuMP.@objective(model, Min, MathOptVRP.op_sum_distances(inst.dist, nodes))
     JuMP.optimize!(model)
     @test JuMP.termination_status(model) in _OPTIMAL_STATUSES

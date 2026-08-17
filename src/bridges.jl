@@ -51,9 +51,9 @@ function MOI.Bridges.inverse_adjoint_map_function(
 end
 
 """
-    ListToPartitionBridge{T} = SetConversionBridge{T,Partition,List}
+    PermutationToPartitionBridge{T} = SetConversionBridge{T,Partition,Permutation}
 
-Bridges `List(n)` to `Partition(n, 1)`, for backends that support
-`Partition` but not `List`.
+Bridges `Permutation(n)` to `Partition(n, 1)`, for backends that support
+`Partition` but not `Permutation`.
 """
-const ListToPartitionBridge{T} = SetConversionBridge{T,Partition,List}
+const PermutationToPartitionBridge{T} = SetConversionBridge{T,Partition,Permutation}
