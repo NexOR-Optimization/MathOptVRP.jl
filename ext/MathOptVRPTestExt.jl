@@ -307,7 +307,7 @@ end
 
 function _model(optimizer_factory; time_limit::Real)
     model = JuMP.Model(optimizer_factory)
-    MathOptVRP.add_all_bridges(model)
+    MathOptVRP.Bridges.add_all_bridges(model)
     JuMP.set_silent(model)
     JuMP.set_time_limit_sec(model, time_limit)
     return model
