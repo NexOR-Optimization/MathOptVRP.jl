@@ -1,6 +1,7 @@
 module Bridges
 
 import MathOptInterface as MOI
+import JuMP
 
 using ..MathOptVRP: Partition, Permutation
 
