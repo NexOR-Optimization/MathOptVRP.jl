@@ -305,6 +305,14 @@ function _read_routes(nodes)
     return routes
 end
 
+function _model(optimizer_factory; time_limit::Real)
+    model = JuMP.Model(optimizer_factory)
+    MathOptVRP.Bridges.add_all_bridges(model)
+    JuMP.set_silent(model)
+    JuMP.set_time_limit_sec(model, time_limit)
+    return model
+end
+
 # TSP — only solver-specific bit is reading the permutation, but
 # `MathOptVRP.Permutation(n)` pins `count(permutation) == n`, so every
 # `value(nodes[k])`
@@ -317,9 +325,7 @@ function MathOptVRP.Tests.test_tsp(
     kwargs...,
 )
     inst = _tsp_instance(; seed, n)
-    model = JuMP.Model(optimizer_factory)
-    JuMP.set_silent(model)
-    JuMP.set_time_limit_sec(model, time_limit)
+    model = _model(optimizer_factory; time_limit)
     JuMP.@variable(model, nodes[1:n] in MathOptVRP.Permutation(n))
     JuMP.@objective(model, Min, MathOptVRP.op_sum_distances(inst.dist, nodes))
     JuMP.optimize!(model)
@@ -340,9 +346,7 @@ function MathOptVRP.Tests.test_vrp(
     kwargs...,
 )
     inst = _vrp_instance(; seed, n_customers, n_trucks)
-    model = JuMP.Model(optimizer_factory)
-    JuMP.set_silent(model)
-    JuMP.set_time_limit_sec(model, time_limit)
+    model = _model(optimizer_factory; time_limit)
     JuMP.@variable(
         model,
         nodes[1:(inst.n_customers), 1:(inst.n_trucks)] in
@@ -375,9 +379,7 @@ function MathOptVRP.Tests.test_vrppd(
     kwargs...,
 )
     inst = _vrppd_instance(; seed, num_services, num_pickup_deliveries, num_trucks)
-    model = JuMP.Model(optimizer_factory)
-    JuMP.set_silent(model)
-    JuMP.set_time_limit_sec(model, time_limit)
+    model = _model(optimizer_factory; time_limit)
     JuMP.@variable(
         model,
         nodes[1:(inst.n_total), 1:(inst.num_trucks)] in MathOptVRP.PartitionPD(
@@ -412,9 +414,7 @@ function MathOptVRP.Tests.test_vrptw(
     kwargs...,
 )
     inst = _vrptw_instance(; seed, n_customers, n_trucks)
-    model = JuMP.Model(optimizer_factory)
-    JuMP.set_silent(model)
-    JuMP.set_time_limit_sec(model, time_limit)
+    model = _model(optimizer_factory; time_limit)
     JuMP.@variable(model, t[1:(inst.n_trucks)] >= 0)
     JuMP.@variable(
         model,
@@ -455,9 +455,7 @@ function MathOptVRP.Tests.test_cvrp(
         num_trucks,
         capacity,
     )
-    model = JuMP.Model(optimizer_factory)
-    JuMP.set_silent(model)
-    JuMP.set_time_limit_sec(model, time_limit)
+    model = _model(optimizer_factory; time_limit)
     JuMP.@variable(
         model,
         nodes[1:(inst.n_total), 1:(inst.num_trucks)] in MathOptVRP.PartitionPD(
@@ -511,9 +509,7 @@ function MathOptVRP.Tests.test_cvrptw(
         fixed_time,
         slope,
     )
-    model = JuMP.Model(optimizer_factory)
-    JuMP.set_silent(model)
-    JuMP.set_time_limit_sec(model, time_limit)
+    model = _model(optimizer_factory; time_limit)
     JuMP.@variable(model, t[1:(inst.num_trucks)] >= 0)
     JuMP.@variable(
         model,
