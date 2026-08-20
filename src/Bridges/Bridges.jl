@@ -23,4 +23,14 @@ function add_all_bridges(model::MOI.ModelLike, ::Type{T} = Float64) where {T}
     return
 end
 
+function add_all_bridges(
+    model::JuMP.GenericModel{T},
+    ::Type{U} = T,
+) where {T,U}
+    for bridge_type in Bridges._ALL_BRIDGE_TYPES
+        JuMP.add_bridge(model, bridge_type; coefficient_type = U)
+    end
+    return
+end
+
 end # module Bridges
