@@ -118,7 +118,7 @@ import MathOptInterface as MOI
         @test expr.args[2] === nodes
     end
 
-    include("Bridges/set_conversion.jl")
+    include("Bridges/PermutationToPartitionBridge.jl")
 
     include("test_ortools.jl")
 
