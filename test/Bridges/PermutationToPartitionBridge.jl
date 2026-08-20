@@ -1,4 +1,4 @@
-module TestSetConversion
+module TestPermutationToPartitionBridge
 
 using Test
 
@@ -18,11 +18,19 @@ end
 
 function test_runtests_PermutationToPartition()
     MOI.Bridges.runtests(
-        MathOptVRP.PermutationToPartitionBridge,
+        MathOptVRP.Bridges.PermutationToPartitionBridge,
         model -> MOI.add_constrained_variables(model, MathOptVRP.Permutation(3)),
         model ->
             MOI.add_constrained_variables(model, MathOptVRP.Partition(3, 1)),
     )
+    return
+end
+
+function test_add_all_bridges()
+    model = MOI.Bridges.LazyBridgeOptimizer(MOI.Utilities.Model{Float64}())
+    MathOptVRP.Bridges.add_all_bridges(model)
+    @test MathOptVRP.Bridges.PermutationToPartitionBridge{Float64} in
+          model.variable_bridge_types
     return
 end
 
@@ -38,7 +46,7 @@ end
 function test_runtests_PermutationToPartition_objective()
     for n in (1, 4)
         MOI.Bridges.runtests(
-            MathOptVRP.PermutationToPartitionBridge,
+            MathOptVRP.Bridges.PermutationToPartitionBridge,
             model -> begin
                 x, _ = MOI.add_constrained_variables(model, MathOptVRP.Permutation(n))
                 _set_objective(model, x)
@@ -56,7 +64,7 @@ function test_runtests_PermutationToPartition_objective()
 end
 
 function test_supports_constrained_variable()
-    BT = MathOptVRP.PermutationToPartitionBridge{Float64}
+    BT = MathOptVRP.Bridges.PermutationToPartitionBridge{Float64}
     @test MOI.Bridges.Variable.supports_constrained_variable(
         BT,
         MathOptVRP.Permutation,
@@ -74,7 +82,7 @@ end
 # `map_set` (bridge → user) and `inverse_map_set` (user → bridge) are the
 # `Base.convert` methods of `src/sets.jl`.
 function test_map_set()
-    BT = MathOptVRP.PermutationToPartitionBridge{Float64}
+    BT = MathOptVRP.Bridges.PermutationToPartitionBridge{Float64}
     @test MOI.Bridges.inverse_map_set(BT, MathOptVRP.Permutation(3)) ==
           MathOptVRP.Partition(3, 1)
     @test MOI.Bridges.map_set(BT, MathOptVRP.Partition(3, 1)) ==
@@ -82,6 +90,6 @@ function test_map_set()
     return
 end
 
-end # module TestSetConversion
+end # module TestPermutationToPartitionBridge
 
-TestSetConversion.runtests()
+TestPermutationToPartitionBridge.runtests()

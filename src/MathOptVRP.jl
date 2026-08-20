@@ -21,7 +21,7 @@ import MathOptInterface as MOI
 import JuMP
 
 include("sets.jl")
-include("bridges.jl")
+include("Bridges/Bridges.jl")
 include("operators.jl")
 include("Tests.jl")
 

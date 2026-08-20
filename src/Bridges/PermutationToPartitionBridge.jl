@@ -3,11 +3,10 @@
 # also support `@variable(model, x[1:n] in S1(...))`, for any pair of
 # vector sets connected by a linear map (`S2` is the set actually added to
 # the underlying model, `S1` is the set exposed to the user). A new `S1 => S2` pair
-# only has to supply `map_set` / `inverse_map_set` (how the sets relate — generic here, via
-# `Base.convert`) and `map_function` / `inverse_map_function` (how the
-# *variables* relate — necessarily specific to the pair, since `S1` and
-# `S2` need not even share a dimension).
-#
+# only has to supply `map_set` / `inverse_map_set` (how the sets relate -- generic
+# here, via `Base.convert`) and `map_function` / `inverse_map_function` (how the
+# *variables* relate -- necessarily specific to the pair, since `S1` and `S2`
+# need not even share a dimension).
 
 """
     SetConversionBridge{T,S2,S1} <: MOI.Bridges.Variable.SetMapBridge{T,S2,S1}
