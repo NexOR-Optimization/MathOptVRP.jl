@@ -4,7 +4,8 @@
 Solver-agnostic MOI sets and JuMP helpers for vehicle-routing problems:
 
   * sets — `Permutation`, `Partition`, `PartitionPD`, `TimeWindows`,
-    `CapacitatedTimeWindows`, `Capacity`
+    `CapacitatedTimeWindows`, `Capacity`, `RouteCompatibility`,
+    `RouteOrder`, `RouteExtremities`
   * operator — `sum_distances` / `op_sum_distances` for closed-tour cost
     objectives
 

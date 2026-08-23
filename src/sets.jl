@@ -179,3 +179,69 @@ end
 MOI.dimension(s::CapacitatedTimeWindows) = length(s.earliest) + 3
 
 Base.copy(s::CapacitatedTimeWindows) = s
+
+"""
+    RouteCompatibility(allowed)
+
+Vector constraint on one route's column of nodes. Visit `i` may occur on the
+route only when `allowed[i]` is `true`. This is typically applied to every
+trip of a vehicle using the same vehicle-specific compatibility vector.
+"""
+struct RouteCompatibility <: MOI.AbstractVectorSet
+    allowed::Vector{Bool}
+end
+
+RouteCompatibility(allowed::AbstractVector{Bool}) =
+    RouteCompatibility(collect(allowed))
+
+MOI.dimension(s::RouteCompatibility) = length(s.allowed)
+
+Base.copy(s::RouteCompatibility) = s
+
+"""
+    RouteOrder(before, after)
+
+Vector constraint on one route's column of nodes. Every visited node selected
+by `before` must precede every visited node selected by `after`. Nodes selected
+by neither vector are unconstrained relative to both classes. The two vectors
+must have equal length and be disjoint.
+"""
+struct RouteOrder <: MOI.AbstractVectorSet
+    before::Vector{Bool}
+    after::Vector{Bool}
+    function RouteOrder(
+        before::AbstractVector{Bool},
+        after::AbstractVector{Bool},
+    )
+        length(before) == length(after) || throw(DimensionMismatch(
+            "RouteOrder vectors must have equal length; got " *
+            "$(length(before)) and $(length(after)).",
+        ))
+        any(before .& after) && throw(ArgumentError(
+            "RouteOrder classes must be disjoint.",
+        ))
+        return new(collect(before), collect(after))
+    end
+end
+
+MOI.dimension(s::RouteOrder) = length(s.before)
+
+Base.copy(s::RouteOrder) = s
+
+"""
+    RouteExtremities(members)
+
+Vector constraint on one route's column of nodes. Each visited node selected
+by `members` must either precede every visited unselected node or follow every
+visited unselected node. Selected nodes may occur at both ends of the route.
+"""
+struct RouteExtremities <: MOI.AbstractVectorSet
+    members::Vector{Bool}
+end
+
+RouteExtremities(members::AbstractVector{Bool}) =
+    RouteExtremities(collect(members))
+
+MOI.dimension(s::RouteExtremities) = length(s.members)
+
+Base.copy(s::RouteExtremities) = s

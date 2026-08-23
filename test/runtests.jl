@@ -98,6 +98,37 @@ import MathOptInterface as MOI
         @test Base.copy(s) === s
     end
 
+    @testset "RouteCompatibility" begin
+        s = MathOptVRP.RouteCompatibility(Bool[true, false, true])
+        @test s.allowed == Bool[true, false, true]
+        @test MOI.dimension(s) == 3
+        @test Base.copy(s) === s
+    end
+
+    @testset "RouteOrder" begin
+        s = MathOptVRP.RouteOrder(
+            Bool[true, false, false], Bool[false, false, true],
+        )
+        @test s.before == Bool[true, false, false]
+        @test s.after == Bool[false, false, true]
+        @test MOI.dimension(s) == 3
+        @test Base.copy(s) === s
+        @test_throws DimensionMismatch MathOptVRP.RouteOrder(
+            Bool[true], Bool[false, true],
+        )
+        @test_throws ArgumentError MathOptVRP.RouteOrder(
+            Bool[true, false], Bool[true, false],
+        )
+    end
+
+    @testset "RouteExtremities" begin
+        members = Bool[true, false, true]
+        s = MathOptVRP.RouteExtremities(members)
+        @test s.members == members
+        @test MOI.dimension(s) == 3
+        @test Base.copy(s) === s
+    end
+
     @testset "sum_distances / op_sum_distances" begin
         # The bare stub has no methods.
         @test_throws MethodError MathOptVRP.sum_distances(zeros(Int, 2, 2), [1, 2])
