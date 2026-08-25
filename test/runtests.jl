@@ -59,15 +59,21 @@ import MathOptInterface as MOI
 
     @testset "TimeWindows" begin
         travel = [0 1 2; 1 0 3; 2 3 0]
-        earliest = [0, 0]
-        latest = [10, 10]
-        s = MathOptVRP.TimeWindows(travel, earliest, latest, 1)
+        earliest = [0, 0, 0]
+        latest = [10, 10, 10]
+        service = [1, 1, 0]
+        s = MathOptVRP.TimeWindows{MathOptVRP.WITHOUT_START_TIME}(
+            travel, earliest, latest, service, 2,
+        )
         @test s.travel === travel
         @test s.earliest === earliest
         @test s.latest === latest
-        @test s.service == 1
-        # `[t; depot_start; nodes...; depot_end]` → 1 + 1 + n + 1 = n + 3.
-        @test MOI.dimension(s) == length(earliest) + 3
+        @test s.service === service
+        @test MOI.dimension(s) == 5
+        exposed = MathOptVRP.TimeWindows{MathOptVRP.WITH_START_TIME}(
+            travel, earliest, latest, service, 2,
+        )
+        @test MOI.dimension(exposed) == 8
         # `Base.copy` returns the same logically-immutable set.
         @test Base.copy(s) === s
     end
@@ -98,6 +104,37 @@ import MathOptInterface as MOI
         @test Base.copy(s) === s
     end
 
+    @testset "RouteCompatibility" begin
+        s = MathOptVRP.RouteCompatibility(Bool[true, false, true])
+        @test s.allowed == Bool[true, false, true]
+        @test MOI.dimension(s) == 3
+        @test Base.copy(s) === s
+    end
+
+    @testset "RouteOrder" begin
+        s = MathOptVRP.RouteOrder(
+            Bool[true, false, false], Bool[false, false, true],
+        )
+        @test s.before == Bool[true, false, false]
+        @test s.after == Bool[false, false, true]
+        @test MOI.dimension(s) == 3
+        @test Base.copy(s) === s
+        @test_throws DimensionMismatch MathOptVRP.RouteOrder(
+            Bool[true], Bool[false, true],
+        )
+        @test_throws ArgumentError MathOptVRP.RouteOrder(
+            Bool[true, false], Bool[true, false],
+        )
+    end
+
+    @testset "RouteExtremities" begin
+        members = Bool[true, false, true]
+        s = MathOptVRP.RouteExtremities(members)
+        @test s.members == members
+        @test MOI.dimension(s) == 3
+        @test Base.copy(s) === s
+    end
+
     @testset "sum_distances / op_sum_distances" begin
         # The bare stub has no methods.
         @test_throws MethodError MathOptVRP.sum_distances(zeros(Int, 2, 2), [1, 2])
@@ -116,6 +153,16 @@ import MathOptInterface as MOI
         @test expr.head === :sum_distances
         @test expr.args[1] === dist
         @test expr.args[2] === nodes
+    end
+
+    @testset "defined route values" begin
+        empty_set = MathOptVRP.IsEmpty(3)
+        @test empty_set.num_items == 3
+        @test MOI.dimension(empty_set) == 4
+        sum_set = MathOptVRP.SumGetIndex([2, 3, 5])
+        @test sum_set.values == [2, 3, 5]
+        @test MOI.dimension(sum_set) == 4
+        @test copy(sum_set) === sum_set
     end
 
     include("Bridges/PermutationToPartitionBridge.jl")

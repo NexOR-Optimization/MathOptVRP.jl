@@ -118,25 +118,67 @@ function JuMP.build_variable(
     )
 end
 
-"""
-    TimeWindows(travel, earliest, latest, service)
+@enum StartTimeInclusion WITHOUT_START_TIME WITH_START_TIME
 
-Vector constraint applied to `[t; depot_start; nodes; depot_end]` for one
-truck. `t` is the truck's total-time variable; `depot_start` /
-`depot_end` are constant node indices; `nodes` is a column of variables
-from a `Partition` / `PartitionPD`. The constraint enforces, for every
-visited customer, that the service start lies in `[earliest, latest]`,
-and links `t >= total_time` so that `@objective(model, Min, sum(t))`
-minimises the makespan (travel + waiting + service + return to depot).
 """
-struct TimeWindows{T<:Real} <: MOI.AbstractVectorSet
+    TimeWindows{W}(travel, earliest, latest, service[, num_items])
+
+Schedule the logical node sequence `[first_node; route; last_node]`, where
+`route` is a variable-length sequence with `num_items` proxy entries and all
+node values are one-based indices into `travel`, `earliest`, `latest`, and
+`service`. Every occurrence, including the fixed first and last nodes, obeys
+its time window and participates in travel and service propagation.
+
+For `W == WITHOUT_START_TIME`, apply the set to
+`[route_end; first_node; route; last_node]`. The route belongs to the set when
+there exists a feasible schedule and `route_end` is no earlier than completion
+of the last occurrence.
+
+For `W == WITH_START_TIME`, apply it to
+`[start_time; route_end; first_node; route; last_node]`, where `start_time` has
+one entry for every node index. It is zero for an absent node and otherwise is
+the service start of that node's first occurrence. Thus, if the first and last
+nodes are equal, its exposed start time is the departure occurrence;
+`route_end` still describes completion of the final occurrence.
+
+The two variants have the same scheduling semantics after projecting out
+`start_time`. The variant without exposed times lets solvers use compact
+derived expressions. For example, Hexaly.jl uses a recursive array expression
+without creating time decisions. The exposed variant may require actual time
+variables because other constraints can reference and delay the schedule.
+"""
+struct TimeWindows{W,T<:Real} <: MOI.AbstractVectorSet
     travel::Matrix{T}
     earliest::Vector{T}
     latest::Vector{T}
-    service::T
+    service::Vector{T}
+    num_items::Int
+    function TimeWindows{W}(
+        travel::Matrix{T},
+        earliest::Vector{T},
+        latest::Vector{T},
+        service::Vector{T},
+        num_items::Integer = size(travel, 1) - 1,
+    ) where {W,T<:Real}
+        n = size(travel, 1)
+        size(travel, 2) == n || throw(DimensionMismatch(
+            "TimeWindows travel matrix must be square; got $(size(travel)).",
+        ))
+        length(earliest) == n == length(latest) == length(service) ||
+            throw(DimensionMismatch(
+                "TimeWindows node-data vectors must have one entry per travel-matrix node.",
+            ))
+        num_items >= 0 || throw(ArgumentError("num_items must be nonnegative."))
+        return new{W,T}(travel, earliest, latest, service, Int(num_items))
+    end
 end
 
-MOI.dimension(s::TimeWindows) = length(s.earliest) + 3
+function MOI.dimension(s::TimeWindows{WITHOUT_START_TIME})
+    return s.num_items + 3
+end
+function MOI.dimension(s::TimeWindows{WITH_START_TIME})
+    return length(s.service) + s.num_items + 3
+end
 
 Base.copy(s::TimeWindows) = s
 
@@ -179,3 +221,100 @@ end
 MOI.dimension(s::CapacitatedTimeWindows) = length(s.earliest) + 3
 
 Base.copy(s::CapacitatedTimeWindows) = s
+
+"""
+    RouteCompatibility(allowed)
+
+Vector constraint on one route's column of nodes. Visit `i` may occur on the
+route only when `allowed[i]` is `true`. This is typically applied to every
+trip of a vehicle using the same vehicle-specific compatibility vector.
+"""
+struct RouteCompatibility <: MOI.AbstractVectorSet
+    allowed::Vector{Bool}
+end
+
+RouteCompatibility(allowed::AbstractVector{Bool}) =
+    RouteCompatibility(collect(allowed))
+
+MOI.dimension(s::RouteCompatibility) = length(s.allowed)
+
+Base.copy(s::RouteCompatibility) = s
+
+"""
+    RouteOrder(before, after)
+
+Vector constraint on one route's column of nodes. Every visited node selected
+by `before` must precede every visited node selected by `after`. Nodes selected
+by neither vector are unconstrained relative to both classes. The two vectors
+must have equal length and be disjoint.
+"""
+struct RouteOrder <: MOI.AbstractVectorSet
+    before::Vector{Bool}
+    after::Vector{Bool}
+    function RouteOrder(
+        before::AbstractVector{Bool},
+        after::AbstractVector{Bool},
+    )
+        length(before) == length(after) || throw(DimensionMismatch(
+            "RouteOrder vectors must have equal length; got " *
+            "$(length(before)) and $(length(after)).",
+        ))
+        any(before .& after) && throw(ArgumentError(
+            "RouteOrder classes must be disjoint.",
+        ))
+        return new(collect(before), collect(after))
+    end
+end
+
+MOI.dimension(s::RouteOrder) = length(s.before)
+
+Base.copy(s::RouteOrder) = s
+
+"""
+    RouteExtremities(members)
+
+Vector constraint on one route's column of nodes. Each visited node selected
+by `members` must either precede every visited unselected node or follow every
+visited unselected node. Selected nodes may occur at both ends of the route.
+"""
+struct RouteExtremities <: MOI.AbstractVectorSet
+    members::Vector{Bool}
+end
+
+RouteExtremities(members::AbstractVector{Bool}) =
+    RouteExtremities(collect(members))
+
+MOI.dimension(s::RouteExtremities) = length(s.members)
+
+Base.copy(s::RouteExtremities) = s
+
+"""
+    IsEmpty(num_items)
+
+Definition constraint applied to `[is_empty; route]`, where `route` contains
+`num_items` proxy variables from one variable-length route. It defines the
+binary variable `is_empty` to be one exactly when the route is empty.
+"""
+struct IsEmpty <: MOI.AbstractVectorSet
+    num_items::Int
+end
+
+MOI.dimension(s::IsEmpty) = s.num_items + 1
+
+"""
+    SumGetIndex(values)
+
+Definition constraint applied to `[total; route]`. It defines `total` as
+`sum(values[i] for i in route)`. Solvers with native sequence expressions may
+substitute `total` rather than creating a decision variable.
+"""
+struct SumGetIndex{T<:Real} <: MOI.AbstractVectorSet
+    values::Vector{T}
+end
+
+SumGetIndex(values::AbstractVector{T}) where {T<:Real} =
+    SumGetIndex{T}(collect(values))
+
+MOI.dimension(s::SumGetIndex) = length(s.values) + 1
+
+Base.copy(s::SumGetIndex) = s

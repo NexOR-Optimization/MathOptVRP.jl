@@ -4,9 +4,10 @@
 Solver-agnostic MOI sets and JuMP helpers for vehicle-routing problems:
 
   * sets — `Permutation`, `Partition`, `PartitionPD`, `TimeWindows`,
-    `CapacitatedTimeWindows`, `Capacity`
-  * operator — `sum_distances` / `op_sum_distances` for closed-tour cost
-    objectives
+    `CapacitatedTimeWindows`, `Capacity`, `RouteCompatibility`,
+    `RouteOrder`, `RouteExtremities`, `IsEmpty`,
+    `SumGetIndex`
+  * operator — `sum_distances` / `op_sum_distances`
 
 A solver wrapper (e.g. `Hexaly.Optimizer`) implements
 `MOI.add_constrained_variables(model, ::Partition)` and
