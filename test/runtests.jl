@@ -129,6 +129,26 @@ import MathOptInterface as MOI
         @test Base.copy(s) === s
     end
 
+    @testset "RouteSchedule" begin
+        travel = zeros(Int, 4, 4)
+        s = MathOptVRP.RouteSchedule(
+            travel, [0, 1, 2], [10, 11, 12], [3, 4, 5], 4;
+            departure_service = 6,
+        )
+        @test s.travel === travel
+        @test s.service == [3, 4, 5]
+        @test s.depot == 4
+        @test s.departure_service == 6
+        @test MOI.dimension(s) == 8
+        @test Base.copy(s) === s
+        @test_throws DimensionMismatch MathOptVRP.RouteSchedule(
+            travel, [0, 1], [10], [3, 4], 4,
+        )
+        @test_throws ArgumentError MathOptVRP.RouteSchedule(
+            travel, [0, 1, 2], [10, 11, 12], [3, 4, 5], 5,
+        )
+    end
+
     @testset "sum_distances / op_sum_distances" begin
         # The bare stub has no methods.
         @test_throws MethodError MathOptVRP.sum_distances(zeros(Int, 2, 2), [1, 2])
@@ -147,6 +167,16 @@ import MathOptInterface as MOI
         @test expr.head === :sum_distances
         @test expr.args[1] === dist
         @test expr.args[2] === nodes
+    end
+
+    @testset "defined route values" begin
+        empty_set = MathOptVRP.IsEmpty(3)
+        @test empty_set.num_items == 3
+        @test MOI.dimension(empty_set) == 4
+        sum_set = MathOptVRP.SumGetIndex([2, 3, 5])
+        @test sum_set.values == [2, 3, 5]
+        @test MOI.dimension(sum_set) == 4
+        @test copy(sum_set) === sum_set
     end
 
     include("Bridges/PermutationToPartitionBridge.jl")

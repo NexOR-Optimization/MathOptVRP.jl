@@ -245,3 +245,91 @@ RouteExtremities(members::AbstractVector{Bool}) =
 MOI.dimension(s::RouteExtremities) = length(s.members)
 
 Base.copy(s::RouteExtremities) = s
+
+"""
+    RouteSchedule(travel, earliest, latest, service, depot;
+                  departure_service=0)
+
+Schedule one route while exposing its timing decisions. Apply the set to
+`[route_start; route_end; visit_start; route_nodes]`, where `visit_start` and
+`route_nodes` both have one entry per visit. `route_nodes` must be one column
+of a [`Partition`](@ref), while the other entries are ordinary variables.
+
+For every visited node, service starts inside its time window and no earlier
+than completion of the preceding departure/service plus travel. `route_end`
+is no earlier than the return to `depot`. Unvisited entries of `visit_start`
+are fixed to zero. The inequalities intentionally permit waiting, which is
+needed by synchronization and break constraints layered on the schedule.
+
+Node indices are `1:length(service)` and `depot` is a 1-based row/column of
+the square `travel` matrix, normally `length(service) + 1`.
+"""
+struct RouteSchedule{T<:Real} <: MOI.AbstractVectorSet
+    travel::Matrix{T}
+    earliest::Vector{T}
+    latest::Vector{T}
+    service::Vector{T}
+    depot::Int
+    departure_service::T
+    function RouteSchedule(
+        travel::Matrix{T},
+        earliest::Vector{T},
+        latest::Vector{T},
+        service::Vector{T},
+        depot::Integer;
+        departure_service::Real = zero(T),
+    ) where {T<:Real}
+        n = length(service)
+        length(earliest) == n == length(latest) || throw(DimensionMismatch(
+            "RouteSchedule earliest, latest, and service vectors must have equal length.",
+        ))
+        size(travel, 1) == size(travel, 2) || throw(DimensionMismatch(
+            "RouteSchedule travel matrix must be square; got $(size(travel)).",
+        ))
+        1 <= depot <= size(travel, 1) || throw(ArgumentError(
+            "RouteSchedule depot index $depot is outside the travel matrix.",
+        ))
+        size(travel, 1) >= n + 1 || throw(DimensionMismatch(
+            "RouteSchedule travel matrix needs at least $(n + 1) nodes; got $(size(travel, 1)).",
+        ))
+        return new{T}(
+            travel, earliest, latest, service, Int(depot),
+            convert(T, departure_service),
+        )
+    end
+end
+
+MOI.dimension(s::RouteSchedule) = 2 + 2length(s.service)
+
+Base.copy(s::RouteSchedule) = s
+
+"""
+    IsEmpty(num_items)
+
+Definition constraint applied to `[is_empty; route]`, where `route` contains
+`num_items` proxy variables from one variable-length route. It defines the
+binary variable `is_empty` to be one exactly when the route is empty.
+"""
+struct IsEmpty <: MOI.AbstractVectorSet
+    num_items::Int
+end
+
+MOI.dimension(s::IsEmpty) = s.num_items + 1
+
+"""
+    SumGetIndex(values)
+
+Definition constraint applied to `[total; route]`. It defines `total` as
+`sum(values[i] for i in route)`. Solvers with native sequence expressions may
+substitute `total` rather than creating a decision variable.
+"""
+struct SumGetIndex{T<:Real} <: MOI.AbstractVectorSet
+    values::Vector{T}
+end
+
+SumGetIndex(values::AbstractVector{T}) where {T<:Real} =
+    SumGetIndex{T}(collect(values))
+
+MOI.dimension(s::SumGetIndex) = length(s.values) + 1
+
+Base.copy(s::SumGetIndex) = s
