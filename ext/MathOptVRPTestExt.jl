@@ -422,10 +422,19 @@ function MathOptVRP.Tests.test_vrptw(
         MathOptVRP.Partition(inst.n_customers, inst.n_trucks),
     )
     for i = 1:(inst.n_trucks)
+        # Use two logical copies of the physical depot so that every node in
+        # the scheduled sequence has uniform window and service data.
+        permutation = [collect(1:inst.n_customers); inst.depot; inst.depot]
+        travel = inst.M[permutation, permutation]
+        earliest = [inst.earliest; 0; 0]
+        latest = [inst.latest; 1_000_000_000; 1_000_000_000]
+        service = [fill(inst.service_time, inst.n_customers); 0; 0]
         JuMP.@constraint(
             model,
-            [t[i]; inst.depot; nodes[:, i]; inst.depot] in
-            MathOptVRP.TimeWindows(inst.M, inst.earliest, inst.latest, inst.service_time)
+            [t[i]; inst.n_customers + 1; nodes[:, i]; inst.n_customers + 2] in
+            MathOptVRP.TimeWindows{MathOptVRP.WITHOUT_START_TIME}(
+                travel, earliest, latest, service, inst.n_customers,
+            )
         )
     end
     JuMP.@objective(model, Min, sum(t))

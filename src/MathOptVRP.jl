@@ -5,7 +5,7 @@ Solver-agnostic MOI sets and JuMP helpers for vehicle-routing problems:
 
   * sets — `Permutation`, `Partition`, `PartitionPD`, `TimeWindows`,
     `CapacitatedTimeWindows`, `Capacity`, `RouteCompatibility`,
-    `RouteOrder`, `RouteExtremities`, `RouteSchedule`, `IsEmpty`,
+    `RouteOrder`, `RouteExtremities`, `IsEmpty`,
     `SumGetIndex`
   * operator — `sum_distances` / `op_sum_distances`
 

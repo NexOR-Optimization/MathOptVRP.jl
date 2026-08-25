@@ -59,15 +59,21 @@ import MathOptInterface as MOI
 
     @testset "TimeWindows" begin
         travel = [0 1 2; 1 0 3; 2 3 0]
-        earliest = [0, 0]
-        latest = [10, 10]
-        s = MathOptVRP.TimeWindows(travel, earliest, latest, 1)
+        earliest = [0, 0, 0]
+        latest = [10, 10, 10]
+        service = [1, 1, 0]
+        s = MathOptVRP.TimeWindows{MathOptVRP.WITHOUT_START_TIME}(
+            travel, earliest, latest, service, 2,
+        )
         @test s.travel === travel
         @test s.earliest === earliest
         @test s.latest === latest
-        @test s.service == 1
-        # `[t; depot_start; nodes...; depot_end]` → 1 + 1 + n + 1 = n + 3.
-        @test MOI.dimension(s) == length(earliest) + 3
+        @test s.service === service
+        @test MOI.dimension(s) == 5
+        exposed = MathOptVRP.TimeWindows{MathOptVRP.WITH_START_TIME}(
+            travel, earliest, latest, service, 2,
+        )
+        @test MOI.dimension(exposed) == 8
         # `Base.copy` returns the same logically-immutable set.
         @test Base.copy(s) === s
     end
@@ -127,26 +133,6 @@ import MathOptInterface as MOI
         @test s.members == members
         @test MOI.dimension(s) == 3
         @test Base.copy(s) === s
-    end
-
-    @testset "RouteSchedule" begin
-        travel = zeros(Int, 4, 4)
-        s = MathOptVRP.RouteSchedule(
-            travel, [0, 1, 2], [10, 11, 12], [3, 4, 5], 4;
-            departure_service = 6,
-        )
-        @test s.travel === travel
-        @test s.service == [3, 4, 5]
-        @test s.depot == 4
-        @test s.departure_service == 6
-        @test MOI.dimension(s) == 8
-        @test Base.copy(s) === s
-        @test_throws DimensionMismatch MathOptVRP.RouteSchedule(
-            travel, [0, 1], [10], [3, 4], 4,
-        )
-        @test_throws ArgumentError MathOptVRP.RouteSchedule(
-            travel, [0, 1, 2], [10, 11, 12], [3, 4, 5], 5,
-        )
     end
 
     @testset "sum_distances / op_sum_distances" begin

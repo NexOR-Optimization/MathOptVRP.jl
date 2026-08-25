@@ -118,25 +118,67 @@ function JuMP.build_variable(
     )
 end
 
-"""
-    TimeWindows(travel, earliest, latest, service)
+@enum StartTimeInclusion WITHOUT_START_TIME WITH_START_TIME
 
-Vector constraint applied to `[t; depot_start; nodes; depot_end]` for one
-truck. `t` is the truck's total-time variable; `depot_start` /
-`depot_end` are constant node indices; `nodes` is a column of variables
-from a `Partition` / `PartitionPD`. The constraint enforces, for every
-visited customer, that the service start lies in `[earliest, latest]`,
-and links `t >= total_time` so that `@objective(model, Min, sum(t))`
-minimises the makespan (travel + waiting + service + return to depot).
 """
-struct TimeWindows{T<:Real} <: MOI.AbstractVectorSet
+    TimeWindows{W}(travel, earliest, latest, service[, num_items])
+
+Schedule the logical node sequence `[first_node; route; last_node]`, where
+`route` is a variable-length sequence with `num_items` proxy entries and all
+node values are one-based indices into `travel`, `earliest`, `latest`, and
+`service`. Every occurrence, including the fixed first and last nodes, obeys
+its time window and participates in travel and service propagation.
+
+For `W == WITHOUT_START_TIME`, apply the set to
+`[route_end; first_node; route; last_node]`. The route belongs to the set when
+there exists a feasible schedule and `route_end` is no earlier than completion
+of the last occurrence.
+
+For `W == WITH_START_TIME`, apply it to
+`[start_time; route_end; first_node; route; last_node]`, where `start_time` has
+one entry for every node index. It is zero for an absent node and otherwise is
+the service start of that node's first occurrence. Thus, if the first and last
+nodes are equal, its exposed start time is the departure occurrence;
+`route_end` still describes completion of the final occurrence.
+
+The two variants have the same scheduling semantics after projecting out
+`start_time`. The variant without exposed times lets solvers use compact
+derived expressions. For example, Hexaly.jl uses a recursive array expression
+without creating time decisions. The exposed variant may require actual time
+variables because other constraints can reference and delay the schedule.
+"""
+struct TimeWindows{W,T<:Real} <: MOI.AbstractVectorSet
     travel::Matrix{T}
     earliest::Vector{T}
     latest::Vector{T}
-    service::T
+    service::Vector{T}
+    num_items::Int
+    function TimeWindows{W}(
+        travel::Matrix{T},
+        earliest::Vector{T},
+        latest::Vector{T},
+        service::Vector{T},
+        num_items::Integer = size(travel, 1) - 1,
+    ) where {W,T<:Real}
+        n = size(travel, 1)
+        size(travel, 2) == n || throw(DimensionMismatch(
+            "TimeWindows travel matrix must be square; got $(size(travel)).",
+        ))
+        length(earliest) == n == length(latest) == length(service) ||
+            throw(DimensionMismatch(
+                "TimeWindows node-data vectors must have one entry per travel-matrix node.",
+            ))
+        num_items >= 0 || throw(ArgumentError("num_items must be nonnegative."))
+        return new{W,T}(travel, earliest, latest, service, Int(num_items))
+    end
 end
 
-MOI.dimension(s::TimeWindows) = length(s.earliest) + 3
+function MOI.dimension(s::TimeWindows{WITHOUT_START_TIME})
+    return s.num_items + 3
+end
+function MOI.dimension(s::TimeWindows{WITH_START_TIME})
+    return length(s.service) + s.num_items + 3
+end
 
 Base.copy(s::TimeWindows) = s
 
@@ -245,63 +287,6 @@ RouteExtremities(members::AbstractVector{Bool}) =
 MOI.dimension(s::RouteExtremities) = length(s.members)
 
 Base.copy(s::RouteExtremities) = s
-
-"""
-    RouteSchedule(travel, earliest, latest, service, depot;
-                  departure_service=0)
-
-Schedule one route while exposing its timing decisions. Apply the set to
-`[route_start; route_end; visit_start; route_nodes]`, where `visit_start` and
-`route_nodes` both have one entry per visit. `route_nodes` must be one column
-of a [`Partition`](@ref), while the other entries are ordinary variables.
-
-For every visited node, service starts inside its time window and no earlier
-than completion of the preceding departure/service plus travel. `route_end`
-is no earlier than the return to `depot`. Unvisited entries of `visit_start`
-are fixed to zero. The inequalities intentionally permit waiting, which is
-needed by synchronization and break constraints layered on the schedule.
-
-Node indices are `1:length(service)` and `depot` is a 1-based row/column of
-the square `travel` matrix, normally `length(service) + 1`.
-"""
-struct RouteSchedule{T<:Real} <: MOI.AbstractVectorSet
-    travel::Matrix{T}
-    earliest::Vector{T}
-    latest::Vector{T}
-    service::Vector{T}
-    depot::Int
-    departure_service::T
-    function RouteSchedule(
-        travel::Matrix{T},
-        earliest::Vector{T},
-        latest::Vector{T},
-        service::Vector{T},
-        depot::Integer;
-        departure_service::Real = zero(T),
-    ) where {T<:Real}
-        n = length(service)
-        length(earliest) == n == length(latest) || throw(DimensionMismatch(
-            "RouteSchedule earliest, latest, and service vectors must have equal length.",
-        ))
-        size(travel, 1) == size(travel, 2) || throw(DimensionMismatch(
-            "RouteSchedule travel matrix must be square; got $(size(travel)).",
-        ))
-        1 <= depot <= size(travel, 1) || throw(ArgumentError(
-            "RouteSchedule depot index $depot is outside the travel matrix.",
-        ))
-        size(travel, 1) >= n + 1 || throw(DimensionMismatch(
-            "RouteSchedule travel matrix needs at least $(n + 1) nodes; got $(size(travel, 1)).",
-        ))
-        return new{T}(
-            travel, earliest, latest, service, Int(depot),
-            convert(T, departure_service),
-        )
-    end
-end
-
-MOI.dimension(s::RouteSchedule) = 2 + 2length(s.service)
-
-Base.copy(s::RouteSchedule) = s
 
 """
     IsEmpty(num_items)
