@@ -326,11 +326,17 @@ function MathOptVRP.Tests.test_tsp(
 )
     inst = _tsp_instance(; seed, n)
     model = _model(optimizer_factory; time_limit)
-    JuMP.@variable(model, nodes[1:n] in MathOptVRP.Permutation(n))
-    JuMP.@objective(model, Min, MathOptVRP.op_sum_distances(inst.dist, nodes))
+    # Fix node `n` as the start/end of the tour. This breaks rotational
+    # symmetry and expresses TSP as the one-vehicle VRP special case.
+    JuMP.@variable(model, nodes[1:(n-1)] in MathOptVRP.Permutation(n - 1))
+    JuMP.@objective(
+        model,
+        Min,
+        MathOptVRP.op_sum_distances(inst.dist, [n; nodes; n]),
+    )
     JuMP.optimize!(model)
     @test JuMP.termination_status(model) in _OPTIMAL_STATUSES
-    tour = [round(Int, JuMP.value(v)) for v in nodes]
+    tour = [n; [round(Int, JuMP.value(v)) for v in nodes]]
     @test sort(tour) == collect(1:n)
     expected = sum(inst.dist[tour[k], tour[mod1(k + 1, n)]] for k = 1:n)
     @test round(Int, JuMP.objective_value(model)) == expected
