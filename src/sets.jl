@@ -97,6 +97,28 @@ struct PartitionPD <: MOI.AbstractVectorSet
     num_trucks::Int
 end
 
+"""
+    Base.convert(::Type{PartitionPD}, s::Partition)
+
+A plain partition is exactly a pickup/delivery partition with no pairs: all
+`num_clients` nodes are ordinary services.
+"""
+Base.convert(::Type{PartitionPD}, s::Partition) =
+    PartitionPD(s.num_clients, 0, s.num_trucks)
+
+"""
+    Base.convert(::Type{Partition}, s::PartitionPD)
+
+The inverse conversion is defined only when `s` contains no pickup/delivery
+pairs.
+"""
+function Base.convert(::Type{Partition}, s::PartitionPD)
+    if !iszero(s.num_pickup_deliveries)
+        throw(InexactError(:convert, Partition, s))
+    end
+    return Partition(s.num_services, s.num_trucks)
+end
+
 _pd_n_total(s::PartitionPD) = s.num_services + 2 * s.num_pickup_deliveries
 
 MOI.dimension(s::PartitionPD) = _pd_n_total(s) * s.num_trucks

@@ -40,6 +40,17 @@ import MathOptInterface as MOI
         )
     end
 
+    @testset "Partition <=> PartitionPD conversion" begin
+        @test convert(MathOptVRP.PartitionPD, MathOptVRP.Partition(5, 2)) ==
+              MathOptVRP.PartitionPD(5, 0, 2)
+        @test convert(MathOptVRP.Partition, MathOptVRP.PartitionPD(5, 0, 2)) ==
+              MathOptVRP.Partition(5, 2)
+        @test_throws InexactError convert(
+            MathOptVRP.Partition,
+            MathOptVRP.PartitionPD(3, 1, 2),
+        )
+    end
+
     @testset "PartitionPD" begin
         s = MathOptVRP.PartitionPD(2, 3, 4)  # 2 services + 2*3 pd = 8 rows, 4 trucks
         @test s.num_services == 2

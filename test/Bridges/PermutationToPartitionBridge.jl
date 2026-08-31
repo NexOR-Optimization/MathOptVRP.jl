@@ -26,11 +26,42 @@ function test_runtests_PermutationToPartition()
     return
 end
 
+function test_runtests_PartitionToPartitionPD()
+    MOI.Bridges.runtests(
+        MathOptVRP.Bridges.PartitionToPartitionPDBridge,
+        model -> MOI.add_constrained_variables(model, MathOptVRP.Partition(3, 2)),
+        model -> MOI.add_constrained_variables(
+            model,
+            MathOptVRP.PartitionPD(3, 0, 2),
+        ),
+    )
+    return
+end
+
 function test_add_all_bridges()
     model = MOI.Bridges.LazyBridgeOptimizer(MOI.Utilities.Model{Float64}())
     MathOptVRP.Bridges.add_all_bridges(model)
     @test MathOptVRP.Bridges.PermutationToPartitionBridge{Float64} in
           model.variable_bridge_types
+    @test MathOptVRP.Bridges.PartitionToPartitionPDBridge{Float64} in
+          model.variable_bridge_types
+    return
+end
+
+
+function test_supports_constrained_variable_PartitionToPartitionPD()
+    BT = MathOptVRP.Bridges.PartitionToPartitionPDBridge{Float64}
+    @test MOI.Bridges.Variable.supports_constrained_variable(
+        BT,
+        MathOptVRP.Partition,
+    )
+    @test !MOI.Bridges.Variable.supports_constrained_variable(
+        BT,
+        MathOptVRP.PartitionPD,
+    )
+    @test MOI.Bridges.added_constrained_variable_types(BT) ==
+          [(MathOptVRP.PartitionPD,)]
+    @test isempty(MOI.Bridges.added_constraint_types(BT))
     return
 end
 
@@ -87,6 +118,15 @@ function test_map_set()
           MathOptVRP.Partition(3, 1)
     @test MOI.Bridges.map_set(BT, MathOptVRP.Partition(3, 1)) ==
           MathOptVRP.Permutation(3)
+    return
+end
+
+function test_map_set_PartitionToPartitionPD()
+    BT = MathOptVRP.Bridges.PartitionToPartitionPDBridge{Float64}
+    @test MOI.Bridges.inverse_map_set(BT, MathOptVRP.Partition(3, 2)) ==
+          MathOptVRP.PartitionPD(3, 0, 2)
+    @test MOI.Bridges.map_set(BT, MathOptVRP.PartitionPD(3, 0, 2)) ==
+          MathOptVRP.Partition(3, 2)
     return
 end
 
