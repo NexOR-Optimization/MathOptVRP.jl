@@ -97,6 +97,28 @@ struct PartitionPD <: MOI.AbstractVectorSet
     num_trucks::Int
 end
 
+"""
+    Base.convert(::Type{PartitionPD}, s::Partition)
+
+A plain `Partition` is a `PartitionPD` with zero pickup/delivery pairs: every
+node is a service, so the flat layout and dimension are identical.
+"""
+Base.convert(::Type{PartitionPD}, s::Partition) =
+    PartitionPD(s.num_clients, 0, s.num_trucks)
+
+"""
+    Base.convert(::Type{Partition}, s::PartitionPD)
+
+Only defined when `s.num_pickup_deliveries == 0`: a `PartitionPD` with
+pickup/delivery pairs has no plain-`Partition` equivalent.
+"""
+function Base.convert(::Type{Partition}, s::PartitionPD)
+    if s.num_pickup_deliveries != 0
+        throw(InexactError(:convert, Partition, s))
+    end
+    return Partition(s.num_services, s.num_trucks)
+end
+
 _pd_n_total(s::PartitionPD) = s.num_services + 2 * s.num_pickup_deliveries
 
 MOI.dimension(s::PartitionPD) = _pd_n_total(s) * s.num_trucks

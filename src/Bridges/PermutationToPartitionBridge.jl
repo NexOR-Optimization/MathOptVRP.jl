@@ -56,3 +56,13 @@ Bridges `Permutation(n)` to `Partition(n, 1)`, for backends that support
 `Partition` but not `Permutation`.
 """
 const PermutationToPartitionBridge{T} = SetConversionBridge{T,Partition,Permutation}
+
+"""
+    PartitionToPartitionPDBridge{T} = SetConversionBridge{T,PartitionPD,Partition}
+
+Bridges `Partition(n, t)` to `PartitionPD(n, 0, t)`, for backends that
+support `PartitionPD` but not plain `Partition`. Chains with
+[`PermutationToPartitionBridge`](@ref) so a `Permutation` also reaches such
+a backend.
+"""
+const PartitionToPartitionPDBridge{T} = SetConversionBridge{T,PartitionPD,Partition}

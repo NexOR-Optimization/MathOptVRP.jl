@@ -3,11 +3,11 @@ module Bridges
 import MathOptInterface as MOI
 import JuMP
 
-using ..MathOptVRP: Partition, Permutation
+using ..MathOptVRP: Partition, Permutation, PartitionPD
 
 include("PermutationToPartitionBridge.jl")
 
-const _ALL_BRIDGE_TYPES = Any[PermutationToPartitionBridge]
+const _ALL_BRIDGE_TYPES = Any[PermutationToPartitionBridge, PartitionToPartitionPDBridge]
 
 """
     add_all_bridges(model::MOI.ModelLike, ::Type{T} = Float64)
