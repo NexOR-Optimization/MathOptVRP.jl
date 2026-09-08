@@ -3,10 +3,11 @@
 
 Solver-agnostic MOI sets and JuMP helpers for vehicle-routing problems:
 
-  * sets — `List`, `Partition`, `PartitionPD`, `TimeWindows`,
-    `CapacitatedTimeWindows`, `Capacity`
-  * operator — `sum_distances` / `op_sum_distances` for closed-tour cost
-    objectives
+  * sets — `Permutation`, `Partition`, `PartitionPD`, `TimeWindows`,
+    `CapacitatedTimeWindows`, `Capacity`, `RouteCompatibility`,
+    `RouteOrder`, `RouteExtremities`, `IsEmpty`,
+    `SumGetIndex`
+  * operator — `sum_distances` / `op_sum_distances`
 
 A solver wrapper (e.g. `Hexaly.Optimizer`) implements
 `MOI.add_constrained_variables(model, ::Partition)` and
@@ -21,6 +22,7 @@ import MathOptInterface as MOI
 import JuMP
 
 include("sets.jl")
+include("Bridges/Bridges.jl")
 include("operators.jl")
 include("Tests.jl")
 

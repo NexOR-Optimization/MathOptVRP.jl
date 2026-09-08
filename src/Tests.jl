@@ -1,10 +1,10 @@
 # Solver-independent test entry points. The implementations live in the
 # `MathOptVRPTestExt` package extension and are loaded automatically when
 # `using Test` is in scope. The signature of every `test_<variant>` is
-# `test_<variant>(optimizer_factory; read_routes, kwargs...)` where
-# `read_routes(model, nodes) -> Vector{Vector{Int}}` recovers each truck's
-# 0-indexed visited-customer sequence from the solved model and the
-# matrix of decision variables (this part is necessarily solver-specific).
+# `test_<variant>(optimizer_factory; kwargs...)`: the routes are recovered
+# from the value of the `Partition` / `PartitionPD` variables, whose
+# columns are `0`-padded once a truck's route ends, so nothing here is
+# solver-specific.
 #
 # The submodule is named `Tests` (plural) so it does not shadow stdlib
 # `Test` for callers that `using Test` to trigger the extension.
