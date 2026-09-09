@@ -1,12 +1,17 @@
 module MathOptVRPORToolsExt
 
-# Minimal MathOptVRP backend on top of OR-Tools' CP-SAT solver. Scope is
-# narrow: just enough to run `MathOptVRP.test_vrp`. We accept one
-# `MathOptVRP.Partition` set of variables and a `MOI.ScalarNonlinearFunction`
-# objective built from `MathOptVRP.op_sum_distances` (one leaf per truck,
-# optionally wrapped in `:+` nodes), then lower the VRP to a CP-SAT
-# `CpModelProto` with a `RoutesConstraintProto` and hand it to
-# `ORTools.SolveCpModelWithParameters`, the CP-SAT C API.
+# Minimal MathOptVRP backend on top of OR-Tools' CP-SAT solver. We accept
+# one `MathOptVRP.PartitionPD` set of variables (the most general route
+# constructor; `MathOptVRP.Partition` and `MathOptVRP.Permutation` reach us
+# bridged into it, see `MathOptVRP.Bridges`) and a
+# `MOI.ScalarNonlinearFunction` objective built from
+# `MathOptVRP.op_sum_distances` (one leaf per truck, optionally wrapped in
+# `:+` nodes), then lower the problem to a CP-SAT `CpModelProto` with a
+# `RoutesConstraintProto` and hand it to `ORTools.SolveCpModelWithParameters`,
+# the CP-SAT C API. Pickup/delivery pairs (same vehicle + precedence) are not
+# natively expressible in `RoutesConstraintProto`, so they are lowered to
+# extra per-arc "rank"/"route id" propagation constraints, see
+# `_build_cp_model`.
 
 # ORTools has a `CPSATOptimizer` but that we could extend but it still seems to be WIP,
 # e.g., no `optimize!` function and https://github.com/google/or-tools/pull/5219
@@ -27,7 +32,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     next_variable::Int
     next_constraint::Int
     variable_to_position::Dict{MOI.VariableIndex,Tuple{Int,Int}}
-    partition::Union{Nothing,MathOptVRP.Partition}
+    partition::Union{Nothing,MathOptVRP.PartitionPD}
     objective_sense::MOI.OptimizationSense
     objective_function::Union{Nothing,MOI.ScalarNonlinearFunction}
     silent::Bool
@@ -144,14 +149,15 @@ end
 
 # Variables
 
-function MOI.supports_add_constrained_variables(::Optimizer, ::Type{MathOptVRP.Partition})
+function MOI.supports_add_constrained_variables(::Optimizer, ::Type{MathOptVRP.PartitionPD})
     return true
 end
 
-function MOI.add_constrained_variables(m::Optimizer, set::MathOptVRP.Partition)
+function MOI.add_constrained_variables(m::Optimizer, set::MathOptVRP.PartitionPD)
     m.partition === nothing ||
-        error("ORTools: only one MathOptVRP.Partition set is supported per model")
-    n_rows, n_cols = set.num_clients, set.num_trucks
+        error("ORTools: only one MathOptVRP.PartitionPD set is supported per model")
+    n_rows = set.num_services + 2 * set.num_pickup_deliveries
+    n_cols = set.num_trucks
     n = n_rows * n_cols
     vars = Vector{MOI.VariableIndex}(undef, n)
     for k = 1:n
@@ -164,7 +170,8 @@ function MOI.add_constrained_variables(m::Optimizer, set::MathOptVRP.Partition)
     end
     m.partition = set
     m.next_constraint += 1
-    ci = MOI.ConstraintIndex{MOI.VectorOfVariables,MathOptVRP.Partition}(m.next_constraint)
+    ci =
+        MOI.ConstraintIndex{MOI.VectorOfVariables,MathOptVRP.PartitionPD}(m.next_constraint)
     return vars, ci
 end
 
@@ -268,7 +275,148 @@ end
 
 _arc_var_index(i::Int, j::Int, n_loc::Int) = i * (n_loc - 1) + (j > i ? j - 1 : j)
 
-function _build_cp_model(M::AbstractMatrix{<:Real}, ext_depot::Int, n_trucks::Int)
+# `RoutesConstraintProto` only encodes connectivity (one multi-circuit
+# through the depot); it has no notion of pickup/delivery pairing. So a
+# pair `(p, d)` (external ids) is lowered to two auxiliary "dimensions",
+# propagated one arc at a time via enforced linear constraints:
+#   - `route[i]`: the internal id of the first customer on `i`'s route,
+#     used as a route identifier so `route[p] == route[d]` means "same
+#     vehicle".
+#   - `rank[i]`: `i`'s 1-based position along its route, so
+#     `rank[p] < rank[d]` means "visited before".
+# Every non-depot node has exactly one incoming arc (the `routes`
+# constraint enforces this), so these are well-defined for every node.
+function _add_pickup_delivery_constraints!(
+    constraints::Vector{Sat.ConstraintProto},
+    variables::Vector{Sat.IntegerVariableProto},
+    n_loc::Int,
+    n_arcs::Int,
+    pd_pairs::Vector{Tuple{Int,Int}},
+    ext_to_int::Dict{Int,Int},
+)
+    isempty(pd_pairs) && return
+    n_customers = n_loc - 1
+    rank_var(i::Int) = Int32(n_arcs + (i - 1))
+    route_var(i::Int) = Int32(n_arcs + n_customers + (i - 1))
+    for i = 1:n_customers
+        push!(variables, Sat.IntegerVariableProto("rank_$i", Int64[1, n_customers]))
+    end
+    for i = 1:n_customers
+        push!(variables, Sat.IntegerVariableProto("route_$i", Int64[1, n_customers]))
+    end
+    for i = 0:(n_loc-1), j = 1:(n_loc-1)
+        i == j && continue
+        lit = Int32(_arc_var_index(i, j, n_loc))
+        if i == 0
+            # rank needs to start at one
+            push!(
+                constraints,
+                Sat.ConstraintProto(
+                    "rank_start_$j",
+                    Int32[lit],
+                    PB.OneOf(
+                        :linear,
+                        Sat.LinearConstraintProto(
+                            Int32[rank_var(j)],
+                            Int64[1],
+                            Int64[1, 1],
+                        ),
+                    ),
+                ),
+            )
+            # route id == internal first customer id
+            push!(
+                constraints,
+                Sat.ConstraintProto(
+                    "route_start_$j",
+                    Int32[lit],
+                    PB.OneOf(
+                        :linear,
+                        Sat.LinearConstraintProto(
+                            Int32[route_var(j)],
+                            Int64[1],
+                            Int64[j, j],
+                        ),
+                    ),
+                ),
+            )
+        else
+            # precedence constraint
+            push!(
+                constraints,
+                Sat.ConstraintProto(
+                    "rank_step_$(i)_$(j)",
+                    Int32[lit],
+                    PB.OneOf(
+                        :linear,
+                        Sat.LinearConstraintProto(
+                            Int32[rank_var(j), rank_var(i)],
+                            Int64[1, -1],
+                            Int64[1, 1],
+                        ),
+                    ),
+                ),
+            )
+            # identical route constraint
+            push!(
+                constraints,
+                Sat.ConstraintProto(
+                    "route_step_$(i)_$(j)",
+                    Int32[lit],
+                    PB.OneOf(
+                        :linear,
+                        Sat.LinearConstraintProto(
+                            Int32[route_var(j), route_var(i)],
+                            Int64[1, -1],
+                            Int64[0, 0],
+                        ),
+                    ),
+                ),
+            )
+        end
+    end
+    for (p_ext, d_ext) in pd_pairs
+        p, d = ext_to_int[p_ext], ext_to_int[d_ext]
+        push!(
+            constraints,
+            Sat.ConstraintProto(
+                "same_route_$(p)_$(d)",
+                Int32[],
+                PB.OneOf(
+                    :linear,
+                    Sat.LinearConstraintProto(
+                        Int32[route_var(p), route_var(d)],
+                        Int64[1, -1],
+                        Int64[0, 0],
+                    ),
+                ),
+            ),
+        )
+        push!(
+            constraints,
+            Sat.ConstraintProto(
+                "precedence_$(p)_$(d)",
+                Int32[],
+                PB.OneOf(
+                    :linear,
+                    Sat.LinearConstraintProto(
+                        Int32[rank_var(d), rank_var(p)],
+                        Int64[1, -1],
+                        Int64[1, n_customers],
+                    ),
+                ),
+            ),
+        )
+    end
+    return
+end
+
+function _build_cp_model(
+    M::AbstractMatrix{<:Real},
+    ext_depot::Int,
+    n_trucks::Int,
+    pd_pairs::Vector{Tuple{Int,Int}} = Tuple{Int,Int}[],
+)
     n_loc = size(M, 1)
     n_loc == size(M, 2) || error("ORTools: distance matrix must be square; got $(size(M))")
     int_to_ext = Int[ext_depot]
@@ -277,6 +425,7 @@ function _build_cp_model(M::AbstractMatrix{<:Real}, ext_depot::Int, n_trucks::In
         push!(int_to_ext, ext)
     end
     @assert length(int_to_ext) == n_loc
+    ext_to_int = Dict(ext => i - 1 for (i, ext) in enumerate(int_to_ext))
 
     n_arcs = n_loc * (n_loc - 1)
     variables = Sat.IntegerVariableProto[
@@ -315,6 +464,15 @@ function _build_cp_model(M::AbstractMatrix{<:Real}, ext_depot::Int, n_trucks::In
     push!(
         constraints,
         Sat.ConstraintProto("vehicle_limit", Int32[], PB.OneOf(:linear, vehicle_lim)),
+    )
+
+    _add_pickup_delivery_constraints!(
+        constraints,
+        variables,
+        n_loc,
+        n_arcs,
+        pd_pairs,
+        ext_to_int,
     )
 
     obj_vars = Int32[]
@@ -426,7 +584,7 @@ end
 
 function MOI.optimize!(m::Optimizer)
     m.partition !== nothing ||
-        error("ORTools: model has no `MathOptVRP.Partition` variables")
+        error("ORTools: model has no `MathOptVRP.PartitionPD` variables")
     m.objective_function !== nothing && m.objective_sense == MOI.MIN_SENSE ||
         error("ORTools: requires a `MIN_SENSE` `:sum_distances` objective")
 
@@ -437,7 +595,7 @@ function MOI.optimize!(m::Optimizer)
     parsed = [_parse_leaf(m, leaf) for leaf in leaves]
     n_trucks = length(leaves)
     n_trucks == m.partition.num_trucks || error(
-        "ORTools: objective has $n_trucks `:sum_distances` terms but Partition has $(m.partition.num_trucks)",
+        "ORTools: objective has $n_trucks `:sum_distances` terms but PartitionPD has $(m.partition.num_trucks)",
     )
     M_ref = parsed[1][1]
     depot = parsed[1][2]
@@ -446,7 +604,10 @@ function MOI.optimize!(m::Optimizer)
         dep == depot || error("ORTools: per-truck depots must agree")
     end
 
-    cp_model, int_to_ext = _build_cp_model(M_ref, depot, n_trucks)
+    ns, npd = m.partition.num_services, m.partition.num_pickup_deliveries
+    pd_pairs = Tuple{Int,Int}[(ns + k, ns + npd + k) for k = 1:npd]
+
+    cp_model, int_to_ext = _build_cp_model(M_ref, depot, n_trucks, pd_pairs)
     n_loc = length(int_to_ext)
 
     response = _solve(cp_model, _sat_parameters(m))
