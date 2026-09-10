@@ -182,7 +182,12 @@ function MOI.copy_to(dest::Optimizer, src::MOI.ModelLike)
     return MOI.Utilities.default_copy_to(dest, src)
 end
 
-# ── Objective parsing (mirrors the Vroom wrapper) ────────────────────
+# ── Objective parsing ─────────────────────────────────────────────────
+# JuMP produces `sum(op_sum_distances(M, [depot; col; depot]) for i = 1:T)`
+# as a `ScalarNonlinearFunction`. The root is either a single
+# `:sum_distances` leaf (T == 1) or a tree of `:+` nodes whose leaves are
+# all `:sum_distances`. Each leaf's args[1] is the distance matrix and
+# args[2] is `[depot, var, var, ..., var, depot]`.
 
 function _collect_sum_distances_leaves!(
     leaves::Vector{MOI.ScalarNonlinearFunction},
