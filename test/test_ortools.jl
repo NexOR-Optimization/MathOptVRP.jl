@@ -8,6 +8,7 @@ using Test
     MathOptVRP.Tests.test_vrp,
     MathOptVRP.Tests.test_vrppd,
     MathOptVRP.Tests.test_vrptw,
+    MathOptVRP.Tests.test_cvrp,
 ]
     test(MathOptVRP.ortools_optimizer)
 end

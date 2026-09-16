@@ -30,6 +30,12 @@ module MathOptVRPORToolsExt
 # back to the depot — a "completion" value), tied together by linear
 # constraints reified on each arc literal. See `_build_cp_model_time_windows`.
 
+# CVRP is the `:sum_distances` objective plus one `MathOptVRP.Capacity`
+# constraint per truck column. That is not an alternative lowering but an
+# addition to the one above: a per-customer cumulative-load variable,
+# propagated arc by arc and capped at the truck capacity. See
+# `_add_capacity_constraints!`.
+
 import MathOptInterface as MOI
 import MathOptVRP
 import ORTools
@@ -65,6 +71,11 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     # One `MathOptVRP.TimeWindows` constraint per truck column, keyed by
     # column; populated by `add_constraint`, consumed by `optimize!`.
     time_windows_by_column::Dict{Int,_TimeWindowsEntry}
+    # Likewise one `MathOptVRP.Capacity` constraint per truck column (cvrp).
+    # Unlike `time_windows_by_column`, this does not select a different
+    # lowering: it only adds load-propagation constraints on top of the
+    # `:sum_distances` model, see `_add_capacity_constraints!`.
+    capacity_by_column::Dict{Int,MathOptVRP.Capacity}
     silent::Bool
     time_limit::Union{Nothing,Float64}
     solved::Bool
@@ -88,6 +99,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
             MOI.FEASIBILITY_SENSE,
             nothing,
             Dict{Int,_TimeWindowsEntry}(),
+            Dict{Int,MathOptVRP.Capacity}(),
             false,
             nothing,
             false,
@@ -110,6 +122,7 @@ function MOI.is_empty(m::Optimizer)
            m.objective_function === nothing &&
            m.objective_sense == MOI.FEASIBILITY_SENSE &&
            isempty(m.time_windows_by_column) &&
+           isempty(m.capacity_by_column) &&
            !m.solved
 end
 
@@ -121,6 +134,7 @@ function MOI.empty!(m::Optimizer)
     m.objective_sense = MOI.FEASIBILITY_SENSE
     m.objective_function = nothing
     empty!(m.time_windows_by_column)
+    empty!(m.capacity_by_column)
     m.solved = false
     empty!(m.routes)
     empty!(m.variable_values)
@@ -263,6 +277,92 @@ function MOI.copy_to(dest::Optimizer, src::MOI.ModelLike)
     return MOI.Utilities.default_copy_to(dest, src)
 end
 
+# ── Column helpers ────────────────────────────────────────────────────
+# Every per-truck set (`TimeWindows`, `Capacity`) and every
+# `:sum_distances` objective leaf is applied to the node variables of a
+# single `PartitionPD` column; this resolves those variables to that
+# column and rejects anything else.
+
+function _column_of(m::Optimizer, items, what::AbstractString)
+    column = nothing
+    for it in items
+        it isa MOI.VariableIndex ||
+            error("ORTools: $what entries must be variables; got $(typeof(it))")
+        pos = get(m.variable_to_position, it, nothing)
+        pos === nothing &&
+            error("ORTools: variable $(it) is not part of a registered Partition")
+        if column === nothing
+            column = pos[2]
+        elseif column != pos[2]
+            error("ORTools: $what mixes variables from columns $(column) and $(pos[2])")
+        end
+    end
+    column === nothing && error("ORTools: $what has no node variables")
+    return column::Int
+end
+
+# ── Capacity constraint parsing ───────────────────────────────────────
+# `MathOptVRP.Capacity(delta, capacity)` is applied, one per truck, to a
+# whole `PartitionPD` column in row order. `delta` is indexed by *node id*
+# (the value a slot takes), not by row, so the load carried after visiting
+# the `k`-th customer of a route is `sum(delta[v] for v in route[1:k])`.
+
+function MOI.supports_constraint(
+    ::Optimizer,
+    ::Type{<:Union{MOI.VectorOfVariables,MOI.VectorAffineFunction{Float64}}},
+    ::Type{<:MathOptVRP.Capacity},
+)
+    return true
+end
+
+function MOI.add_constraint(
+    m::Optimizer,
+    f::Union{MOI.VectorOfVariables,MOI.VectorAffineFunction{Float64}},
+    s::MathOptVRP.Capacity,
+)
+    m.partition === nothing &&
+        error("ORTools: Capacity constraint added before any `MathOptVRP.PartitionPD`")
+    items = _normalize_items(f)
+    n_rows = MathOptVRP._pd_n_total(m.partition)
+    length(items) == n_rows || error(
+        "ORTools: Capacity constraint expects one entry per node ($(n_rows)), got ",
+        "$(length(items))",
+    )
+    column = _column_of(m, items, "Capacity")
+    # `delta` is indexed by node id, so the column has to be the whole
+    # column in row order for the cumulative load to be the route's.
+    for (row, it) in enumerate(items)
+        m.variable_to_position[it::MOI.VariableIndex] == (row, column) ||
+            error("ORTools: Capacity constraint must list one whole column in row order")
+    end
+    haskey(m.capacity_by_column, column) &&
+        error("ORTools: only one Capacity constraint per truck column is supported")
+    m.capacity_by_column[column] = s
+    m.next_constraint += 1
+    return MOI.ConstraintIndex{typeof(f),typeof(s)}(m.next_constraint)
+end
+
+# Trucks are homogeneous in this lowering (there is one CP-SAT model for
+# all of them), so every column's `Capacity` data must agree; returns the
+# common set, or `nothing` when the model has no capacity constraints.
+function _lower_capacity(m::Optimizer)
+    isempty(m.capacity_by_column) && return nothing
+    n_trucks = m.partition.num_trucks
+    sort(collect(keys(m.capacity_by_column))) == collect(1:n_trucks) || error(
+        "ORTools: expected one Capacity constraint for each of the $(n_trucks) truck ",
+        "columns",
+    )
+    ref = m.capacity_by_column[1]
+    for col = 2:n_trucks
+        s = m.capacity_by_column[col]
+        s.delta == ref.delta ||
+            error("ORTools: per-truck Capacity `delta` must agree")
+        s.capacity == ref.capacity ||
+            error("ORTools: per-truck Capacity `capacity` must agree")
+    end
+    return ref
+end
+
 # ── TimeWindows constraint parsing ────────────────────────────────────
 # `MathOptVRP.TimeWindows{WITHOUT_START_TIME}(travel, earliest, latest,
 # service, num_items)` is applied, one per truck, to
@@ -302,22 +402,7 @@ function MOI.add_constraint(
         error("ORTools: TimeWindows last entry (last_node) must be a `Real`")
     first_node = round(Int, items[2])
     last_node = round(Int, items[end])
-    column = nothing
-    for k = 3:(length(items)-1)
-        it = items[k]
-        it isa MOI.VariableIndex ||
-            error("ORTools: TimeWindows node entries must be variables; got $(typeof(it))")
-        pos = get(m.variable_to_position, it, nothing)
-        pos === nothing &&
-            error("ORTools: variable $(it) is not part of a registered Partition")
-        if column === nothing
-            column = pos[2]
-        elseif column != pos[2]
-            error("ORTools: TimeWindows mixes variables from columns $(column) and $(pos[2])")
-        end
-    end
-    column === nothing &&
-        error("ORTools: TimeWindows constraint has no interior node variables")
+    column = _column_of(m, @view(items[3:(end-1)]), "TimeWindows")
     haskey(m.time_windows_by_column, column) &&
         error("ORTools: only one TimeWindows constraint per truck column is supported")
 
@@ -412,22 +497,8 @@ function _parse_leaf(m::Optimizer, leaf::MOI.ScalarNonlinearFunction)
     depot_start = round(Int, items[1])
     depot_end = round(Int, items[end])
     depot_start == depot_end || error("ORTools: depot_start != depot_end is not supported")
-    column = nothing
-    for k = 2:(length(items)-1)
-        it = items[k]
-        it isa MOI.VariableIndex ||
-            error("ORTools: interior items must be variables; got $(typeof(it))")
-        pos = get(m.variable_to_position, it, nothing)
-        pos === nothing &&
-            error("ORTools: variable $(it) is not part of a registered Partition")
-        if column === nothing
-            column = pos[2]
-        elseif column != pos[2]
-            error("ORTools: `:sum_distances` mixes columns")
-        end
-    end
-    column === nothing && error("ORTools: `:sum_distances` has no interior variables")
-    return matrix, depot_start, column::Int
+    column = _column_of(m, @view(items[2:(end-1)]), "`:sum_distances`")
+    return matrix, depot_start, column
 end
 
 # ── CP-SAT model construction ───────────────────────────────────────
@@ -575,6 +646,84 @@ function _add_pickup_delivery_constraints!(
     return
 end
 
+# `RoutesConstraintProto` has no native capacity primitive either, so
+# `MathOptVRP.Capacity` is lowered like pickup/delivery precedence above:
+# one extra integer variable per customer, `load[i]`, holding the
+# cumulative load carried just after visiting `i`, propagated one arc at a
+# time by linear constraints reified on the arc literal. Capping `load`'s
+# domain at `capacity` is then exactly "the cumulative load never exceeds
+# `capacity`". Note the set says nothing about the load at the *end* of a
+# route, so no arc back into the depot is constrained: a route may finish
+# loaded (here it never does, because every pickup's delivery is pinned to
+# the same route by `_add_pickup_delivery_constraints!`).
+function _add_capacity_constraints!(
+    constraints::Vector{Sat.ConstraintProto},
+    variables::Vector{Sat.IntegerVariableProto},
+    n_loc::Int,
+    set::Union{Nothing,MathOptVRP.Capacity},
+    int_to_ext::Vector{Int},
+)
+    set === nothing && return
+    n_customers = n_loc - 1
+    length(set.delta) >= n_customers || error(
+        "ORTools: Capacity `delta` has $(length(set.delta)) entries but the distance ",
+        "matrix has $(n_customers) non-depot nodes",
+    )
+    # `delta` is indexed by external node id; internal id `i` is customer
+    # `int_to_ext[i + 1]`.
+    delta(i::Int) = round(Int64, set.delta[int_to_ext[i+1]])
+    cap = round(Int64, set.capacity)
+    # A load below zero is not what `Capacity` forbids — only exceeding
+    # `capacity` is — so the lower bound is the most negative cumulative
+    # load any route could reach rather than `0`.
+    lb = min(Int64(0), sum(min(Int64(0), delta(i)) for i = 1:n_customers))
+    load_base = length(variables)
+    load_var(i::Int) = Int32(load_base + (i - 1))
+    for i = 1:n_customers
+        push!(variables, Sat.IntegerVariableProto("load_$i", Int64[lb, cap]))
+    end
+    for i = 0:(n_loc-1), j = 1:(n_loc-1)
+        i == j && continue
+        lit = Int32(_arc_var_index(i, j, n_loc))
+        d = delta(j)
+        if i == 0
+            # Leaving the depot the truck is empty, so `load_j == delta_j`.
+            push!(
+                constraints,
+                Sat.ConstraintProto(
+                    "load_start_$j",
+                    Int32[lit],
+                    PB.OneOf(
+                        :linear,
+                        Sat.LinearConstraintProto(
+                            Int32[load_var(j)],
+                            Int64[1],
+                            Int64[d, d],
+                        ),
+                    ),
+                ),
+            )
+        else
+            push!(
+                constraints,
+                Sat.ConstraintProto(
+                    "load_step_$(i)_$(j)",
+                    Int32[lit],
+                    PB.OneOf(
+                        :linear,
+                        Sat.LinearConstraintProto(
+                            Int32[load_var(j), load_var(i)],
+                            Int64[1, -1],
+                            Int64[d, d],
+                        ),
+                    ),
+                ),
+            )
+        end
+    end
+    return
+end
+
 # Shared skeleton for every CP-SAT model built here: the `x_k` arc
 # variables, the single `RoutesConstraintProto` (one multi-circuit through
 # depot node `0`), and the "at most `n_trucks` routes" limit. Callers add
@@ -626,6 +775,7 @@ function _build_cp_model(
     ext_depot::Int,
     n_trucks::Int,
     pd_pairs::Vector{Tuple{Int,Int}} = Tuple{Int,Int}[],
+    capacity::Union{Nothing,MathOptVRP.Capacity} = nothing,
 )
     n_loc = size(M, 1)
     n_loc == size(M, 2) || error("ORTools: distance matrix must be square; got $(size(M))")
@@ -647,6 +797,8 @@ function _build_cp_model(
         pd_pairs,
         ext_to_int,
     )
+
+    _add_capacity_constraints!(constraints, variables, n_loc, capacity, int_to_ext)
 
     obj_vars = Int32[]
     obj_coeffs = Int64[]
@@ -1037,7 +1189,8 @@ function _optimize_sum_distances!(m::Optimizer)
     ns, npd = m.partition.num_services, m.partition.num_pickup_deliveries
     pd_pairs = Tuple{Int,Int}[(ns + k, ns + npd + k) for k = 1:npd]
 
-    cp_model, int_to_ext = _build_cp_model(M_ref, depot, n_trucks, pd_pairs)
+    cp_model, int_to_ext =
+        _build_cp_model(M_ref, depot, n_trucks, pd_pairs, _lower_capacity(m))
     n_loc = length(int_to_ext)
 
     response = _solve(cp_model, _sat_parameters(m))
@@ -1123,6 +1276,13 @@ function MOI.optimize!(m::Optimizer)
     m.partition !== nothing ||
         error("ORTools: model has no `MathOptVRP.PartitionPD` variables")
     if !isempty(m.time_windows_by_column)
+        # `Capacity` only rides along with the `:sum_distances` lowering;
+        # the combined variant has its own set.
+        isempty(m.capacity_by_column) || error(
+            "ORTools: a `MathOptVRP.Capacity` constraint alongside ",
+            "`MathOptVRP.TimeWindows` is not supported; use ",
+            "`MathOptVRP.CapacitatedTimeWindows`",
+        )
         return _optimize_time_windows!(m)
     end
     m.objective_function !== nothing && m.objective_sense == MOI.MIN_SENSE ||
