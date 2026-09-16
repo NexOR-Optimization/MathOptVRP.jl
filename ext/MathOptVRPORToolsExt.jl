@@ -43,15 +43,27 @@ import ORTools
 const Sat = ORTools.Sat
 const PB = ORTools.PB
 
-# Per-truck data parsed out of one `MathOptVRP.TimeWindows` constraint; see
-# `MOI.add_constraint(::Optimizer, ::Union{MOI.VectorOfVariables,MOI.VectorAffineFunction}, ::MathOptVRP.TimeWindows)`.
-# Per-truck data parsed out of one `MathOptVRP.TimeWindows` constraint;
-# see `MOI.add_constraint(::Optimizer, ::MOI.VectorAffineFunction, ::MathOptVRP.TimeWindows)`.
+# CVRPTW is the `sum(t)` objective of VRPTW with one
+# `MathOptVRP.CapacitatedTimeWindows` constraint per truck column instead
+# of `MathOptVRP.TimeWindows`. It goes through the same time-window
+# lowering, with the per-node service time `fixed_time + slope * |delta[v]|`
+# precomputed into a plain `service` vector, and the capacity and
+# pickup/delivery constraints of CVRP added on top. See
+# `_time_window_data`.
+
+# The two per-truck scheduling sets accepted by the time-window lowering.
+const _TimeWindowsSet = Union{
+    MathOptVRP.TimeWindows{MathOptVRP.WITHOUT_START_TIME},
+    MathOptVRP.CapacitatedTimeWindows,
+}
+
+# Per-truck data parsed out of one `_TimeWindowsSet` constraint; see
+# `MOI.add_constraint(::Optimizer, ::Union{MOI.VectorOfVariables,MOI.VectorAffineFunction}, ::_TimeWindowsSet)`.
 struct _TimeWindowsEntry
     t_var::MOI.VariableIndex
     first_node::Int
     last_node::Int
-    set::MathOptVRP.TimeWindows
+    set::_TimeWindowsSet
 end
 
 mutable struct Optimizer <: MOI.AbstractOptimizer
@@ -68,8 +80,10 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         MOI.ScalarNonlinearFunction,
         MOI.ScalarAffineFunction{Float64},
     }
-    # One `MathOptVRP.TimeWindows` constraint per truck column, keyed by
-    # column; populated by `add_constraint`, consumed by `optimize!`.
+    # One `MathOptVRP.TimeWindows` (vrptw) or
+    # `MathOptVRP.CapacitatedTimeWindows` (cvrptw) constraint per truck
+    # column, keyed by column; populated by `add_constraint`, consumed by
+    # `optimize!`.
     time_windows_by_column::Dict{Int,_TimeWindowsEntry}
     # Likewise one `MathOptVRP.Capacity` constraint per truck column (cvrp).
     # Unlike `time_windows_by_column`, this does not select a different
@@ -373,11 +387,14 @@ end
 # `service` for two (possibly distinct) logical copies of the depot.
 # `earliest`/`latest` are indexed by customer location, matching how
 # `_jobs_and_shipments` sets `Job.id`.
+# `MathOptVRP.CapacitatedTimeWindows` is applied to the same
+# `[route_end; first_node; route...; last_node]` layout, with `route`
+# being a whole column.
 
 function MOI.supports_constraint(
     ::Optimizer,
     ::Type{<:Union{MOI.VectorOfVariables,MOI.VectorAffineFunction{Float64}}},
-    ::Type{<:MathOptVRP.TimeWindows{MathOptVRP.WITHOUT_START_TIME}},
+    ::Type{<:_TimeWindowsSet},
 )
     return true
 end
@@ -385,7 +402,7 @@ end
 function MOI.add_constraint(
     m::Optimizer,
     f::Union{MOI.VectorOfVariables,MOI.VectorAffineFunction{Float64}},
-    s::MathOptVRP.TimeWindows{MathOptVRP.WITHOUT_START_TIME},
+    s::_TimeWindowsSet,
 )
     items = _normalize_items(f)
     length(items) == MOI.dimension(s) || error(
@@ -850,6 +867,8 @@ end
 # `1..n_customers` = customer ids, which already match `MathOptVRP`'s own
 # (external) `Partition` numbering one for one, since `TimeWindows` node
 # values are themselves one-based indices into `earliest`/`latest`/`service`.
+# CVRPTW additionally passes `pd_pairs` and `capacity`, lowered exactly as
+# in `_build_cp_model`.
 function _build_cp_model_time_windows(
     travel::AbstractMatrix{<:Real},
     earliest::AbstractVector{<:Real},
@@ -859,12 +878,28 @@ function _build_cp_model_time_windows(
     last_node::Int,
     n_customers::Int,
     n_trucks::Int,
+    pd_pairs::Vector{Tuple{Int,Int}} = Tuple{Int,Int}[],
+    capacity::Union{Nothing,MathOptVRP.Capacity} = nothing,
 )
     n_loc = n_customers + 1
+    int_to_ext = Int[0; collect(1:n_customers)]
     variables, constraints, n_arcs = _routes_skeleton(n_loc, n_trucks)
 
-    time_var(c::Int) = Int32(n_arcs + (c - 1))
-    contrib_var(c::Int) = Int32(n_arcs + n_customers + (c - 1))
+    # `_add_pickup_delivery_constraints!` numbers its variables right after
+    # the arc literals, so it has to come first.
+    _add_pickup_delivery_constraints!(
+        constraints,
+        variables,
+        n_loc,
+        n_arcs,
+        pd_pairs,
+        Dict(c => c for c = 1:n_customers),
+    )
+    _add_capacity_constraints!(constraints, variables, n_loc, capacity, int_to_ext)
+
+    time_base = length(variables)
+    time_var(c::Int) = Int32(time_base + (c - 1))
+    contrib_var(c::Int) = Int32(time_base + n_customers + (c - 1))
     for c = 1:n_customers
         push!(
             variables,
@@ -990,7 +1025,6 @@ function _build_cp_model_time_windows(
         Int32[],
         nothing,
     )
-    int_to_ext = Int[0; collect(1:n_customers)]
     return model, int_to_ext
 end
 
@@ -1051,14 +1085,12 @@ function _lower_time_windows(m::Optimizer)
     first_node = entries[1].first_node
     last_node = entries[1].last_node
     for e in entries
-        e.set.travel == ref.travel ||
-            error("ORTools: per-truck TimeWindows travel matrices must be equal")
-        e.set.earliest == ref.earliest ||
-            error("ORTools: per-truck TimeWindows `earliest` must agree")
-        e.set.latest == ref.latest ||
-            error("ORTools: per-truck TimeWindows `latest` must agree")
-        e.set.service == ref.service ||
-            error("ORTools: per-truck TimeWindows `service` must agree")
+        typeof(e.set) == typeof(ref) ||
+            error("ORTools: per-truck time-window sets must all have the same type")
+        for field in fieldnames(typeof(ref))
+            getfield(e.set, field) == getfield(ref, field) ||
+                error("ORTools: per-truck $(nameof(typeof(ref))) `$field` must agree")
+        end
         e.first_node == first_node ||
             error("ORTools: per-truck TimeWindows first_node must agree")
         e.last_node == last_node ||
@@ -1066,13 +1098,77 @@ function _lower_time_windows(m::Optimizer)
     end
 
     n_customers = m.partition.num_services + 2 * m.partition.num_pickup_deliveries
+    data = _time_window_data(ref, first_node, last_node, n_customers)
     customer_locs =
-        [i for i = 1:length(ref.earliest) if i != first_node && i != last_node]
+        [i for i = 1:length(data.earliest) if i != first_node && i != last_node]
     customer_locs == collect(1:n_customers) || error(
         "ORTools: TimeWindows first_node/last_node must be the only entries outside ",
         "1:$(n_customers)",
     )
-    return entries, ref, first_node, last_node, n_customers
+    return entries, data, first_node, last_node, n_customers
+end
+
+# Brings either time-window set to the plain per-node
+# `(travel, earliest, latest, service, capacity)` form that
+# `_build_cp_model_time_windows` consumes.
+function _time_window_data(
+    s::MathOptVRP.TimeWindows,
+    ::Int,
+    ::Int,
+    ::Int,
+)
+    return (;
+        s.travel,
+        s.earliest,
+        s.latest,
+        s.service,
+        capacity = nothing,
+    )
+end
+
+# `CapacitatedTimeWindows` has no `service` vector: node `v`'s service time
+# is `fixed_time + slope * |delta[v]|`. Its node data (`earliest`, `latest`,
+# `delta`) may also stop short of the depot copies `first_node`/`last_node`,
+# which only index `travel`; such a depot occurrence gets no time window
+# and no service time.
+function _time_window_data(
+    s::MathOptVRP.CapacitatedTimeWindows,
+    first_node::Int,
+    last_node::Int,
+    n_customers::Int,
+)
+    n = size(s.travel, 1)
+    n == size(s.travel, 2) ||
+        error("ORTools: CapacitatedTimeWindows travel matrix must be square")
+    length(s.earliest) == length(s.latest) == length(s.delta) || error(
+        "ORTools: CapacitatedTimeWindows `earliest`, `latest` and `delta` must have ",
+        "the same length",
+    )
+    length(s.delta) >= n_customers || error(
+        "ORTools: CapacitatedTimeWindows node data has $(length(s.delta)) entries but ",
+        "the partition has $(n_customers) nodes",
+    )
+    n_data = length(s.delta)
+    has_data(v) = v <= n_data
+    for v in (first_node, last_node)
+        1 <= v <= n || error("ORTools: depot node $v is out of the travel matrix range")
+    end
+    # An unconstrained depot still needs a finite `latest` because the
+    # time-window builder derives its variable domains from it.
+    open_latest = maximum(s.latest)
+    earliest = [has_data(v) ? s.earliest[v] : zero(eltype(s.earliest)) for v = 1:n]
+    latest = [has_data(v) ? s.latest[v] : open_latest for v = 1:n]
+    service = [
+        has_data(v) ? s.fixed_time + s.slope * abs(s.delta[v]) : zero(s.fixed_time) for
+        v = 1:n
+    ]
+    return (;
+        s.travel,
+        earliest,
+        latest,
+        service,
+        capacity = MathOptVRP.Capacity(s.delta, s.capacity),
+    )
 end
 
 function _decode_routes(solution::Vector{Int64}, n_loc::Int, int_to_ext::Vector{Int})
@@ -1228,6 +1324,8 @@ end
 function _optimize_time_windows!(m::Optimizer)
     entries, ref, first_node, last_node, n_customers = _lower_time_windows(m)
     n_trucks = m.partition.num_trucks
+    ns, npd = m.partition.num_services, m.partition.num_pickup_deliveries
+    pd_pairs = Tuple{Int,Int}[(ns + k, ns + npd + k) for k = 1:npd]
 
     cp_model, int_to_ext = _build_cp_model_time_windows(
         ref.travel,
@@ -1238,6 +1336,8 @@ function _optimize_time_windows!(m::Optimizer)
         last_node,
         n_customers,
         n_trucks,
+        pd_pairs,
+        ref.capacity,
     )
     n_loc = length(int_to_ext)
 
@@ -1277,7 +1377,8 @@ function MOI.optimize!(m::Optimizer)
         error("ORTools: model has no `MathOptVRP.PartitionPD` variables")
     if !isempty(m.time_windows_by_column)
         # `Capacity` only rides along with the `:sum_distances` lowering;
-        # the combined variant has its own set.
+        # the combined variant has its own set, whose capacity data
+        # `_time_window_data` extracts.
         isempty(m.capacity_by_column) || error(
             "ORTools: a `MathOptVRP.Capacity` constraint alongside ",
             "`MathOptVRP.TimeWindows` is not supported; use ",
