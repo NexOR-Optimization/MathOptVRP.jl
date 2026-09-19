@@ -176,6 +176,8 @@ import MathOptInterface as MOI
         @test copy(sum_set) === sum_set
     end
 
+    include("MOF.jl")
+
     include("Bridges/PermutationToPartitionBridge.jl")
 
     include("test_ortools.jl")
