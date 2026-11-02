@@ -193,6 +193,16 @@ struct TimeWindows{W,T<:Real} <: MOI.AbstractVectorSet
         num_items >= 0 || throw(ArgumentError("num_items must be nonnegative."))
         return new{W,T}(travel, earliest, latest, service, Int(num_items))
     end
+    # The fields of a concrete type, as for the default constructor of a struct.
+    function TimeWindows{W,T}(
+        travel::Matrix{T},
+        earliest::Vector{T},
+        latest::Vector{T},
+        service::Vector{T},
+        num_items::Integer = size(travel, 1) - 1,
+    ) where {W,T<:Real}
+        return TimeWindows{W}(travel, earliest, latest, service, num_items)
+    end
 end
 
 function MOI.dimension(s::TimeWindows{WITHOUT_START_TIME})
