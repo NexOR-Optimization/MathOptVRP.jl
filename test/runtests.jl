@@ -85,6 +85,11 @@ import MathOptInterface as MOI
             travel, earliest, latest, service, 2,
         )
         @test MOI.dimension(exposed) == 8
+        # The fields of a concrete type, as for the default constructor.
+        T = typeof(s)
+        @test T(travel, earliest, latest, service, 2) == s
+        @test MOI.dimension(T(travel, earliest, latest, service)) == 5
+        @test_throws DimensionMismatch T(travel, earliest, latest, [0], 2)
         # `Base.copy` returns the same logically-immutable set.
         @test Base.copy(s) === s
     end

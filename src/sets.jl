@@ -175,7 +175,7 @@ struct TimeWindows{W,T<:Real} <: MOI.AbstractVectorSet
     latest::Vector{T}
     service::Vector{T}
     num_items::Int
-    function TimeWindows{W}(
+    function TimeWindows{W,T}(
         travel::Matrix{T},
         earliest::Vector{T},
         latest::Vector{T},
@@ -193,6 +193,16 @@ struct TimeWindows{W,T<:Real} <: MOI.AbstractVectorSet
         num_items >= 0 || throw(ArgumentError("num_items must be nonnegative."))
         return new{W,T}(travel, earliest, latest, service, Int(num_items))
     end
+end
+
+function TimeWindows{W}(
+    travel::Matrix{T},
+    earliest::Vector{T},
+    latest::Vector{T},
+    service::Vector{T},
+    num_items::Integer = size(travel, 1) - 1,
+) where {W,T<:Real}
+    return TimeWindows{W,T}(travel, earliest, latest, service, num_items)
 end
 
 function MOI.dimension(s::TimeWindows{WITHOUT_START_TIME})
