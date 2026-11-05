@@ -350,3 +350,222 @@ SumGetIndex(values::AbstractVector{T}) where {T<:Real} =
 MOI.dimension(s::SumGetIndex) = length(s.values) + 1
 
 Base.copy(s::SumGetIndex) = s
+
+"""
+    VehicleSchedule(travel, depot, earliest, latest, service, day_earliest,
+                    day_latest, first_service, reload_fixed, reload,
+                    break_length, break_from, break_to, num_trips)
+
+Schedule of one vehicle's day made of `num_trips` consecutive trips from and
+back to the `depot`, with an optional break. Apply it to
+
+    [trip_start; trip_end; break_taken; break_start; visit_start; trip_1; ...; trip_T]
+
+where `trip_start` and `trip_end` have one entry per trip, `visit_start` has
+one entry per node `1:n`, with `n = length(service)`, and each `trip_t` is the column of `n` proxy variables of one route of a
+[`Partition`](@ref). Node values are indices into `travel`, of which `depot`
+is a row.
+
+The vector belongs to the set when there is a schedule, in which the vehicle
+may wait anywhere, such that:
+
+  * the first trip starts with `first_service` at the depot, and each trip
+    then travels to its nodes in order and back to the depot;
+  * each trip starts no earlier than the end of the previous one, plus
+    `reload_fixed + sum(reload[i] for i in trip)` when it visits a node;
+  * the service of each visited node `i` takes `service[i]` and starts in
+    `[earliest[i], latest[i]]`;
+  * the first trip starts no earlier than `day_earliest` and every trip ends
+    no later than `day_latest`; an empty trip ends when it starts;
+  * when `break_taken` is one, the break lasts `break_length`, starts in
+    `[break_from, break_to]`, lies within the day, from the start of the first
+    trip to the end of the last one, and no depot service, travel, service or
+    reload overlaps it;
+
+and `trip_start[t]` and `trip_end[t]` are the start and end of trip `t`, and
+`visit_start[i]` the start of the service of node `i`, or zero if no trip
+visits it.
+
+These are times of *a* feasible schedule,
+not necessarily of the earliest one: constraints on them may delay a visit,
+for instance to meet another vehicle. Solvers with sequence expressions may
+derive them from the earliest schedule when nothing else constrains them.
+"""
+struct VehicleSchedule{T<:Real} <: MOI.AbstractVectorSet
+    travel::Matrix{T}
+    depot::Int
+    earliest::Vector{T}
+    latest::Vector{T}
+    service::Vector{T}
+    day_earliest::T
+    day_latest::T
+    first_service::T
+    reload_fixed::T
+    reload::Vector{T}
+    break_length::T
+    break_from::T
+    break_to::T
+    num_trips::Int
+    function VehicleSchedule{T}(
+        travel::Matrix{T},
+        depot::Integer,
+        earliest::Vector{T},
+        latest::Vector{T},
+        service::Vector{T},
+        day_earliest::T,
+        day_latest::T,
+        first_service::T,
+        reload_fixed::T,
+        reload::Vector{T},
+        break_length::T,
+        break_from::T,
+        break_to::T,
+        num_trips::Integer,
+    ) where {T<:Real}
+        n = length(service)
+        length(earliest) == n == length(latest) == length(reload) ||
+            throw(DimensionMismatch(
+                "VehicleSchedule node vectors must have the same length.",
+            ))
+        size(travel, 1) == size(travel, 2) >= n || throw(DimensionMismatch(
+            "VehicleSchedule travel matrix must be square with a row per node; " *
+            "got $(size(travel)) for $n nodes.",
+        ))
+        1 <= depot <= size(travel, 1) ||
+            throw(ArgumentError("VehicleSchedule depot must be a row of travel."))
+        num_trips >= 1 ||
+            throw(ArgumentError("VehicleSchedule needs at least one trip."))
+        return new{T}(
+            travel,
+            depot,
+            earliest,
+            latest,
+            service,
+            day_earliest,
+            day_latest,
+            first_service,
+            reload_fixed,
+            reload,
+            break_length,
+            break_from,
+            break_to,
+            num_trips,
+        )
+    end
+end
+
+function VehicleSchedule(
+    travel::Matrix{T},
+    depot::Integer,
+    earliest::Vector{T},
+    latest::Vector{T},
+    service::Vector{T},
+    day_earliest::T,
+    day_latest::T,
+    first_service::T,
+    reload_fixed::T,
+    reload::Vector{T},
+    break_length::T,
+    break_from::T,
+    break_to::T,
+    num_trips::Integer,
+) where {T<:Real}
+    return VehicleSchedule{T}(
+        travel,
+        depot,
+        earliest,
+        latest,
+        service,
+        day_earliest,
+        day_latest,
+        first_service,
+        reload_fixed,
+        reload,
+        break_length,
+        break_from,
+        break_to,
+        num_trips,
+    )
+end
+
+"""
+    VehicleSchedule(travel, depot, earliest, latest, service; day, num_trips = 1,
+                    first_service = 0, reload_fixed = 0, reload = zero(service),
+                    break_length = 0, break_window = day)
+
+[`VehicleSchedule`](@ref) with the bounds of the day given as
+`day = (day_earliest, day_latest)` and the window of the start of the break as
+`break_window = (break_from, break_to)`.
+"""
+function VehicleSchedule(
+    travel::Matrix{T},
+    depot::Integer,
+    earliest::Vector{T},
+    latest::Vector{T},
+    service::Vector{T};
+    day::Tuple{Real,Real},
+    num_trips::Integer = 1,
+    first_service::Real = zero(T),
+    reload_fixed::Real = zero(T),
+    reload::AbstractVector{<:Real} = zero(service),
+    break_length::Real = zero(T),
+    break_window::Tuple{Real,Real} = day,
+) where {T<:Real}
+    return VehicleSchedule{T}(
+        travel,
+        depot,
+        earliest,
+        latest,
+        service,
+        T(day[1]),
+        T(day[2]),
+        T(first_service),
+        T(reload_fixed),
+        convert(Vector{T}, reload),
+        T(break_length),
+        T(break_window[1]),
+        T(break_window[2]),
+        num_trips,
+    )
+end
+
+MOI.dimension(s::VehicleSchedule) =
+    2 + 2 * s.num_trips + length(s.service) * (1 + s.num_trips)
+
+Base.copy(s::VehicleSchedule) = s
+
+"""
+    SumDistances(distance, first, last, num_items)
+
+Definition constraint applied to `[total; route]`, where `route` contains the
+`num_items` proxy variables of one variable-length route. It defines `total`
+as the length of the path `[first; route; last]` in `distance`, or zero if
+the route is empty. Solvers with native sequence expressions may substitute `total`
+rather than creating a decision variable.
+"""
+struct SumDistances{T<:Real} <: MOI.AbstractVectorSet
+    distance::Matrix{T}
+    first::Int
+    last::Int
+    num_items::Int
+    function SumDistances{T}(
+        distance::Matrix{T},
+        first::Integer,
+        last::Integer,
+        num_items::Integer,
+    ) where {T<:Real}
+        size(distance, 1) == size(distance, 2) || throw(DimensionMismatch(
+            "SumDistances distance matrix must be square; got $(size(distance)).",
+        ))
+        1 <= first <= size(distance, 1) && 1 <= last <= size(distance, 1) ||
+            throw(ArgumentError("SumDistances first and last must be rows of distance."))
+        return new{T}(distance, first, last, num_items)
+    end
+end
+
+SumDistances(distance::Matrix{T}, first::Integer, last::Integer, num_items::Integer) where {T<:Real} =
+    SumDistances{T}(distance, first, last, num_items)
+
+MOI.dimension(s::SumDistances) = s.num_items + 1
+
+Base.copy(s::SumDistances) = s

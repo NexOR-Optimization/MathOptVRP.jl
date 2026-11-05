@@ -179,6 +179,40 @@ import MathOptInterface as MOI
         @test sum_set.values == [2, 3, 5]
         @test MOI.dimension(sum_set) == 4
         @test copy(sum_set) === sum_set
+        distance = [0 4 6; 4 0 3; 6 3 0]
+        distances = MathOptVRP.SumDistances(distance, 3, 3, 2)
+        @test MOI.dimension(distances) == 3
+        @test copy(distances) === distances
+        @test_throws ArgumentError MathOptVRP.SumDistances(distance, 4, 3, 2)
+        @test_throws DimensionMismatch MathOptVRP.SumDistances(distance[:, 1:2], 1, 1, 2)
+    end
+
+    @testset "VehicleSchedule" begin
+        travel = [0 4 6; 4 0 3; 6 3 0]
+        s = MathOptVRP.VehicleSchedule(
+            travel, 3, [0, 0], [100, 100], [5, 5];
+            day = (0, 200), num_trips = 4, reload = [1, 2],
+            break_length = 30, break_window = (50, 80),
+        )
+        @test s.day_earliest == 0 && s.day_latest == 200
+        @test s.break_from == 50 && s.break_to == 80
+        @test s.first_service == 0 && s.reload == [1, 2]
+        @test MOI.dimension(s) == 2 + 2 * 4 + 2 * 5
+        @test copy(s) === s
+        # The fields of the concrete type, as for the default constructor.
+        T = typeof(s)
+        fields = [getfield(s, f) for f in fieldnames(T)]
+        @test T(fields...) == s
+        @test MathOptVRP.VehicleSchedule(fields...) == s
+        @test_throws DimensionMismatch MathOptVRP.VehicleSchedule(
+            travel, 3, [0], [100, 100], [5, 5]; day = (0, 200),
+        )
+        @test_throws ArgumentError MathOptVRP.VehicleSchedule(
+            travel, 4, [0, 0], [100, 100], [5, 5]; day = (0, 200),
+        )
+        @test_throws ArgumentError MathOptVRP.VehicleSchedule(
+            travel, 3, [0, 0], [100, 100], [5, 5]; day = (0, 200), num_trips = 0,
+        )
     end
 
     include("MOF.jl")
