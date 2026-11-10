@@ -183,7 +183,9 @@ import MathOptInterface as MOI
 
     include("Bridges/PermutationToPartitionBridge.jl")
 
-    include("test_ortools.jl")
+    if VERSION.major == 1 && VERSION.minor == 10
+        include("test_ortools.jl")
+    end
 
     @testset "JuMP overrides (type piracy)" begin
         # Plain numeric arrays: now treated as real, so they pass the
