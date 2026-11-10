@@ -29,6 +29,8 @@ _MOF.head_name(::Type{RouteOrder}) = "MathOptVRPRouteOrder"
 _MOF.head_name(::Type{RouteExtremities}) = "MathOptVRPRouteExtremities"
 _MOF.head_name(::Type{IsEmpty}) = "MathOptVRPIsEmpty"
 _MOF.head_name(::Type{<:SumGetIndex}) = "MathOptVRPSumGetIndex"
+_MOF.head_name(::Type{<:SumDistances}) = "MathOptVRPSumDistances"
+_MOF.head_name(::Type{<:VehicleSchedule}) = "MathOptVRPVehicleSchedule"
 
 function _MOF.set_to_moi(::Val{:MathOptVRPPermutation}, ::Type{T}, object::Dict) where {T}
     return Permutation(Int(object["dimension"]))
@@ -125,4 +127,36 @@ end
 
 function _MOF.set_to_moi(::Val{:MathOptVRPSumGetIndex}, ::Type{T}, object::Dict) where {T}
     return SumGetIndex(convert(Vector{T}, object["values"]))
+end
+
+function _MOF.set_to_moi(::Val{:MathOptVRPSumDistances}, ::Type{T}, object::Dict) where {T}
+    return SumDistances(
+        _mof_matrix(T, object["distance"]),
+        Int(object["first"]),
+        Int(object["last"]),
+        Int(object["num_items"]),
+    )
+end
+
+function _MOF.set_to_moi(
+    ::Val{:MathOptVRPVehicleSchedule},
+    ::Type{T},
+    object::Dict,
+) where {T}
+    return VehicleSchedule(
+        _mof_matrix(T, object["travel"]),
+        Int(object["depot"]),
+        convert(Vector{T}, object["earliest"]),
+        convert(Vector{T}, object["latest"]),
+        convert(Vector{T}, object["service"]),
+        convert(T, object["day_earliest"]),
+        convert(T, object["day_latest"]),
+        convert(T, object["first_service"]),
+        convert(T, object["reload_fixed"]),
+        convert(Vector{T}, object["reload"]),
+        convert(T, object["break_length"]),
+        convert(T, object["break_from"]),
+        convert(T, object["break_to"]),
+        Int(object["num_trips"]),
+    )
 end
