@@ -6,7 +6,7 @@ Solver-agnostic MOI sets and JuMP helpers for vehicle-routing problems:
   * sets — `Permutation`, `Partition`, `PartitionPD`, `TimeWindows`,
     `CapacitatedTimeWindows`, `Capacity`, `RouteCompatibility`,
     `RouteOrder`, `RouteExtremities`, `IsEmpty`,
-    `SumGetIndex`
+    `SumGetIndex`, `SumDistances`, `VehicleSchedule`
   * operator — `sum_distances` / `op_sum_distances`
 
 A solver wrapper (e.g. `Hexaly.Optimizer`) implements
