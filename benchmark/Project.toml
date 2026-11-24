@@ -1,0 +1,15 @@
+[deps]
+Hexaly = "4e695617-bd00-4489-bcc8-8e79e7638cb7"
+JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
+MathOptVRP = "ee161a15-0030-435c-8c62-bd8c501c3551"
+MaxiCP = "dd54a895-6957-4fd6-baf5-19ebd33a667e"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+
+[sources]
+Hexaly = {url = "https://github.com/NexOR-Optimization/Hexaly.jl", rev = "bl/vehicle-schedule"}
+MathOptVRP = {path = ".."}
+MaxiCP = {url = "https://github.com/NexOR-Optimization/MaxiCP.jl", rev = "bl/mathoptvrp"}
+
+[compat]
+JuMP = "1.31"
+julia = "1.11"
