@@ -1,5 +1,6 @@
 using Test
 import MathOptInterface as MOI
+import MathOptVRP
 
 function _test_mof_set_fields(actual, expected)
     @test typeof(actual) == typeof(expected)
@@ -44,6 +45,21 @@ end
         MathOptVRP.RouteExtremities(Bool[true, false, true]),
         MathOptVRP.IsEmpty(3),
         MathOptVRP.SumGetIndex([2.0, 3.0, 5.0]),
+        MathOptVRP.SumDistances(travel, 3, 3, 2),
+        MathOptVRP.VehicleSchedule(
+            travel,
+            3,
+            [1.0, 2.0],
+            [10.0, 11.0],
+            [0.5, 0.6];
+            day = (0.0, 20.0),
+            num_trips = 2,
+            first_service = 0.25,
+            reload_fixed = 1.0,
+            reload = [0.1, 0.2],
+            break_length = 2.0,
+            break_window = (4.0, 8.0),
+        ),
     ]
 
     source = MOI.Utilities.UniversalFallback(MOI.Utilities.Model{Float64}())
